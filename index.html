@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="KTY เบิกจ่าย">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://drive.google.com https://*.googleusercontent.com; connect-src 'self' https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://drive.google.com https://*.googleusercontent.com; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://www.gstatic.com https://fcmregistrations.googleapis.com https://firebaseinstallations.googleapis.com https://fcm.googleapis.com; base-uri 'none'; form-action 'none'">
 <title>KTY 1994 ระบบเบิก–จ่ายวัสดุ</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -149,9 +149,9 @@ table.tb{width:100%;border-collapse:collapse;font-size:13px}table.tb th{backgrou
 /* =========================================================
    KTY 1994 ระบบเบิก–จ่ายวัสดุ : หน้าแอป (PWA) v1.0
    ========================================================= */
-const CFG = window.KTY_CONFIG || {};
+const CFG = self.KTY_CONFIG || window.KTY_CONFIG || {};
 const $app = document.getElementById('app');
-const S = { token: null, user: null, boot: null, reg: null, regOpts: null, forgot: null, timers: [], projectId: null, seq: 0 };
+const S = { token: null, user: null, boot: null, reg: null, regOpts: null, forgot: null, timers: [], projectId: null, seq: 0, cache: {}, pulse: null };
 const stale = my => my !== S.seq; // หน้าที่ถูกเปลี่ยนไปแล้ว ห้ามวาดทับหน้าใหม่
 
 /* ---------- utils ---------- */
@@ -205,7 +205,7 @@ function avatar(u, s = 44) {
 let toastT;
 function toast(msg, bad = false) {
   const t = document.getElementById('toast');
-  t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
+  t.textContent = msg; t.className = 'show' + (bad ? ' bad' : ''); t.onclick = null;
   clearTimeout(toastT); toastT = setTimeout(() => (t.className = ''), bad ? 5000 : 3000);
 }
 let loadingEl = null, loadingN = 0;
@@ -248,6 +248,21 @@ async function api(action, data = {}, opt = {}) {
     return j.data;
   } finally { if (!opt.quiet) busy(false); }
 }
+const WRITE_ACTIONS = ['createReq', 'cancelReq', 'approveDoc', 'rejectDoc', 'issueDoc', 'receive', 'adminApproveUser', 'adminRejectUser', 'adminUpdateUser', 'adminSaveProject', 'adminAddListItem'];
+const _api = api;
+api = async function (action, data, opt) { const r = await _api(action, data, opt); if (WRITE_ACTIONS.includes(action)) markStale(); return r; };
+
+/* ---------- อ่านแบบมีแคช: แสดงของเดิมทันที แล้วอัปเดตเมื่อข้อมูลใหม่มาถึง ---------- */
+async function cached(key, action, data, paint) {
+  const my = S.seq, hit = S.cache[key];
+  if (hit) paint(hit, true);
+  try {
+    const fresh = await api(action, data, { quiet: true });
+    S.cache[key] = fresh;
+    if (!stale(my) && JSON.stringify(fresh) !== JSON.stringify(hit)) paint(fresh, false);
+    return fresh;
+  } catch (e) { if (!hit && !stale(my)) throw e; }
+}
 
 /* ---------- session ---------- */
 function saveSession(token, user, remember) {
@@ -262,29 +277,100 @@ function loadSession() {
   } catch (e) { }
 }
 function logout(expired) {
-  S.token = null; S.user = null; S.boot = null;
-  try { localStorage.removeItem('kty_s'); sessionStorage.removeItem('kty_s'); } catch (e) { }
+  try { localStorage.removeItem(bootKey()); localStorage.removeItem('kty_s'); sessionStorage.removeItem('kty_s'); } catch (e) { }
+  S.token = null; S.user = null; S.boot = null; S.cache = {}; S.pulse = null;
   if (expired) toast('หมดเวลาการใช้งาน กรุณาเข้าสู่ระบบใหม่', true);
   go('/login');
 }
-async function loadBoot(force) {
-  if (S.boot && !force) return S.boot;
-  S.boot = await api('bootstrap', {}, { quiet: !!S.boot });
-  S.user = S.boot.user;
-  const ids = S.boot.projects.map(p => p.project_id);
-  if (!ids.includes(S.projectId)) S.projectId = ids[0] || null;
-  return S.boot;
+/* ข้อมูลตั้งต้น: ใช้ของที่จำไว้ในเครื่องทันที แล้วอัปเดตเบื้องหลัง (เปลี่ยนหน้าได้ทันที ไม่ต้องรอ) */
+function setBoot(b) {
+  S.boot = b; S.user = b.user;
+  const ids = b.projects.map(p => p.project_id);
+  if (!ids.includes(S.projectId)) S.projectId = (b.projects.find(p => p.mine) || b.projects[0] || {}).project_id || null;
+  try { localStorage.setItem(bootKey(), JSON.stringify(b)); } catch (e) { }
 }
+let bootReq = null;
+function fetchBoot() {
+  if (!bootReq) bootReq = api('bootstrap', {}, { quiet: true }).then(b => { setBoot(b); S.bootAt = Date.now(); return b; }).finally(() => { bootReq = null; });
+  return bootReq;
+}
+async function loadBoot(force) {
+  if (!S.boot) {
+    try { const c = JSON.parse(localStorage.getItem(bootKey()) || 'null'); if (c && c.user && S.user && c.user.user_id === S.user.user_id) S.boot = c; } catch (e) { }
+  }
+  if (S.boot && !force) {
+    if (!S.bootAt || Date.now() - S.bootAt > 60000) fetchBoot().then(() => softRefresh()).catch(() => { });
+    return S.boot;
+  }
+  if (S.boot && force) { fetchBoot().then(() => softRefresh()).catch(() => { }); return S.boot; }
+  return fetchBoot();
+}
+/* วาดหน้าใหม่เงียบ ๆ เมื่อข้อมูลเบื้องหลังมาถึง (เฉพาะหน้าที่ไม่มีการพิมพ์ค้าง) */
+function softRefresh() {
+  const p = (location.hash || '').slice(1);
+  if (/^\/(home|stock)$/.test(p) && !document.querySelector('.modal-bg')) render(true);
+}
+const markStale = () => { S.bootAt = 0; S.cache = {}; };
 const role = () => (S.user ? S.user.role : '');
+const money = () => !!(S.boot && S.boot.user && S.boot.user.can_see_money);
+const bootKey = () => 'kty_boot_' + ((S.user && S.user.user_id) || '');
 const isRole = (...r) => r.includes(role());
+
+/* ---------- แจ้งเตือนในแอป: เช็กงานใหม่เป็นระยะ ---------- */
+let audioCtx = null;
+document.addEventListener('pointerdown', () => { if (!audioCtx && window.AudioContext) { try { audioCtx = new AudioContext(); } catch (e) { } } }, { once: true });
+function ding() {
+  if (localStorage.getItem('kty_sound') === 'off') return;
+  try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (e) { }
+  try { if (!audioCtx) return; const o = audioCtx.createOscillator(), g = audioCtx.createGain(); o.frequency.value = 880; g.gain.setValueAtTime(0.0001, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.35); o.connect(g).connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + 0.36); } catch (e) { }
+}
+function updateBadges(t) {
+  const docsBadge = isRole('APPROVER', 'ADMIN') ? t.to_approve : isRole('STORE') ? t.to_issue : 0;
+  const a = document.querySelector('nav.bn a[href="#/docs"]');
+  if (a) { let b = a.querySelector('.badge'); if (docsBadge) { if (!b) { b = document.createElement('span'); b.className = 'badge'; b.style.cssText = 'top:0;right:calc(50% - 22px)'; a.appendChild(b); } b.textContent = docsBadge; } else if (b) b.remove(); }
+  const total = (isRole('APPROVER', 'ADMIN') ? t.to_approve : 0) + (isRole('STORE', 'ADMIN') ? t.to_issue : 0) + (t.applicants || 0);
+  try { if (navigator.setAppBadge) total ? navigator.setAppBadge(total) : navigator.clearAppBadge(); } catch (e) { }
+}
+async function pulse() {
+  if (!S.token || document.hidden) return;
+  let r; try { r = await api('pulse', {}, { quiet: true }); } catch (e) { return; }
+  const prev = S.pulse; S.pulse = r;
+  if (S.boot) S.boot.tasks = r.tasks;
+  updateBadges(r.tasks);
+  if (!prev) return; // ครั้งแรกใช้เป็นจุดอ้างอิง
+  const msgs = [];
+  if (isRole('APPROVER', 'ADMIN') && r.tasks.to_approve > prev.tasks.to_approve) msgs.push(['มีใบเบิกใหม่รออนุมัติ ' + (r.tasks.to_approve - prev.tasks.to_approve) + ' ใบ', '/docs/PENDING']);
+  if (isRole('STORE', 'ADMIN') && r.tasks.to_issue > prev.tasks.to_issue) msgs.push(['มีใบเบิกรอจ่ายของ', '/docs/APPROVED,PARTIAL']);
+  if (r.tasks.applicants > prev.tasks.applicants) msgs.push(['มีผู้สมัครใหม่รออนุมัติ', '/admin/users']);
+  const old = {}; prev.my_docs.forEach(d => (old[d.doc_no] = d.status));
+  r.my_docs.forEach(d => { if (old[d.doc_no] && old[d.doc_no] !== d.status) msgs.push(['ใบเบิก ' + d.doc_no + ': ' + d.status_name, '/doc/' + encodeURIComponent(d.doc_no)]); });
+  if (msgs.length) { markStale(); notifyInApp(msgs[0][0] + (msgs.length > 1 ? ' และอีก ' + (msgs.length - 1) + ' เรื่อง' : ''), msgs[0][1]); softRefresh(); }
+}
+function notifyInApp(text, path) {
+  ding();
+  const t = document.getElementById('toast');
+  t.innerHTML = esc(text) + (path ? ' <u style="font-weight:600">เปิดดู</u>' : ''); t.className = 'show';
+  t.onclick = () => { t.className = ''; if (path) go(path); };
+  clearTimeout(toastT); toastT = setTimeout(() => (t.className = ''), 8000);
+}
+let pulseTimer = null;
+function startPulse() {
+  if (pulseTimer) return;
+  const sec = Math.max(5, Number(CFG.POLL_SECONDS || (S.boot && S.boot.settings.poll_seconds) || 30));
+  pulseTimer = setInterval(pulse, sec * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) pulse(); });
+  setTimeout(pulse, 1500);
+  if (localStorage.getItem('kty_push') && pushSupport().ok && window.Notification && Notification.permission === 'granted') fbMessaging().catch(() => { });
+}
 
 /* ---------- router ---------- */
 const ROUTES = [];
 const route = (pattern, fn, auth = true) => ROUTES.push({ re: new RegExp('^' + pattern.replace(/:(\w+)/g, '([^/]+)') + '$'), fn, auth });
 const go = (path) => { if (location.hash === '#' + path) render(); else location.hash = path; };
 function clearTimers() { S.timers.forEach(clearInterval); S.timers = []; }
-async function render() {
+async function render(soft) {
   clearTimers();
+  S.soft = !!soft;
   const path = decodeURIComponent((location.hash || '#/').slice(1)) || '/';
   if (path === '/' || path === '') return go(S.token ? '/home' : '/login');
   const r = ROUTES.find(x => x.re.test(path));
@@ -294,10 +380,10 @@ async function render() {
   const args = path.match(r.re).slice(1);
   const my = ++S.seq;
   try {
-    if (r.auth) await loadBoot();
+    if (r.auth) { await loadBoot(); startPulse(); }
     if (stale(my)) return;
     await r.fn(...args);
-    window.scrollTo(0, 0);
+    if (!S.soft) window.scrollTo(0, 0);
     const h = $('main h1, main h2, .top b'); if (h) h.setAttribute('tabindex', '-1');
   } catch (e) {
     if (e.code === 'UNAUTHORIZED' || e.code === 'SESSION_EXPIRED') return;
@@ -693,20 +779,21 @@ function docCard(d) {
   return `<a class="card" href="#/doc/${encodeURIComponent(d.doc_no)}" style="gap:6px">
     <div class="line"><span class="disp" style="font-weight:600">${esc(d.doc_no)}</span>${stChip(d.status, d.status_name)}</div>
     <div class="muted">${esc(DOCTYPE_TH[d.doc_type] || d.doc_type)} · ${esc(d.line_count || 0)} รายการ${d.work_category ? ' · ' + esc(d.work_category) : ''}</div>
-    <div class="small" style="color:var(--m2)">${esc(d.requested_by_name || '')} · ${fmtD(d.requested_at)}${d.total_amount ? ' · ' + fmtB(d.total_amount) : ''}</div></a>`;
+    <div class="small" style="color:var(--m2)">${esc(d.requested_by_name || '')} · ${fmtD(d.requested_at)}${money() && d.total_amount ? ' · ' + fmtB(d.total_amount) : ''}</div></a>`;
 }
 
 route('/home', async () => {
-  const my = S.seq; await loadBoot(true); if (stale(my)) return;
+  const my = S.seq;
   const B = S.boot, u = B.user, t = B.tasks;
-  const projSel = B.projects.length > 1 ? `<div class="inp" style="background:var(--pn);border-color:var(--bd)"><select id="pj" style="color:var(--on-dk)" aria-label="เลือกโครงการ">${B.projects.map(p => `<option value="${esc(p.project_id)}" ${p.project_id === S.projectId ? 'selected' : ''} style="color:#000">${esc(p.project_code)} · ${esc(p.name)}</option>`).join('')}</select></div>`
-    : B.projects[0] ? `<div class="row" style="background:var(--pn);border:1px solid var(--bd);border-radius:12px;padding:12px 14px;gap:10px"><b class="disp" style="color:var(--ac)">${esc(B.projects[0].project_code)}</b><span>${esc(B.projects[0].name)}</span></div>` : '';
+  const mineP = B.projects.filter(p => p.mine);
+  const projSel = isRole('REQUESTER') ? '' : mineP.length ? `<div class="small" style="color:var(--dk-mu)">โครงการที่รับผิดชอบ: ${mineP.map(p => '<b style="color:var(--ac)">' + esc(p.project_code) + '</b>').join(' · ')}</div>` : '';
   const tiles = [];
   if (isRole('REQUESTER', 'APPROVER', 'ADMIN')) tiles.push(`<a class="tile a" href="#/req/new">${ico('doc', 28)}สร้างใบเบิก</a>`);
   if (isRole('APPROVER', 'ADMIN')) tiles.push(`<a class="tile d" href="#/docs/PENDING">${ico('check', 28)}<span class="n">${t.to_approve}</span>รออนุมัติ</a>`);
   if (isRole('STORE', 'ADMIN')) tiles.push(`<a class="tile ${isRole('STORE') ? 'a' : 'w'}" href="#/docs/APPROVED,PARTIAL">${ico('box', 28)}<span class="n">${t.to_issue}</span>รอจ่าย</a>`);
   if (isRole('STORE', 'ADMIN')) tiles.push(`<a class="tile d" href="#/receive">${ico('inbox', 28)}รับของเข้าคลัง</a>`);
   if (isRole('ADMIN')) tiles.push(`<a class="tile w" href="#/admin/users">${ico('users', 28)}<span class="n">${t.applicants}</span>ผู้สมัคร/ผู้ใช้</a>`);
+  if (isRole('ADMIN')) tiles.push(`<a class="tile w" href="#/admin/projects">${ico('box', 28)}<span class="n">${B.projects.length}</span>โครงการ</a>`);
   tiles.push(`<button class="tile w" id="qr">${ico('scan', 28)}สแกน QR</button>`);
   const low = [];
   B.locations.forEach(l => B.materials.forEach(m => { const q = stockAt(l.location_id, m.mat_id); if (m.item_type !== 'TOOL' && m.min_stock > 0 && q > 0 && q <= m.min_stock) low.push({ l, m, q }); }));
@@ -720,13 +807,14 @@ route('/home', async () => {
       <div id="recent"><div class="empty">กำลังโหลด…</div></div>
     </main>${bottomNav('home')}`;
   bindCommon();
-  if ($('#pj')) $('#pj').onchange = e => { S.projectId = e.target.value; };
   $('#qr').onclick = () => toast('การสแกน QR จะเปิดใช้ในเฟสถัดไป');
   try {
-    const r = await api('listDocs', { limit: 5, mine: isRole('REQUESTER') }, { quiet: true });
-    if (stale(my) || !$('#recent')) return;
-    $('#recent').innerHTML = r.items.length ? `<div class="fld" style="gap:10px">${r.items.map(docCard).join('')}</div>` : '<div class="empty">ยังไม่มีเอกสาร</div>';
+    await cached('home', 'listDocs', { limit: 5, mine: isRole('REQUESTER') }, r => {
+      if (stale(my) || !$('#recent')) return;
+      $('#recent').innerHTML = r.items.length ? `<div class="fld" style="gap:10px">${r.items.map(docCard).join('')}</div>` : '<div class="empty">ยังไม่มีเอกสาร</div>';
+    });
   } catch (e) { if (!stale(my) && $('#recent')) $('#recent').innerHTML = `<div class="note bad">${esc(e.message)}</div>`; }
+  updateBadges(t);
 });
 
 /* ---------- รายการเอกสาร ---------- */
@@ -737,16 +825,20 @@ async function docsPage(status) {
     <div class="tabs">${tabs.map(([k, n]) => `<a class="chip ${k === (status || '') ? 'on' : ''}" style="display:flex;align-items:center;text-decoration:none;white-space:nowrap" href="#/docs${k ? '/' + k : ''}">${n}</a>`).join('')}</div>
     <div id="lst"><div class="empty">กำลังโหลด…</div></div></main>${bottomNav('docs')}`;
   bindCommon();
-  const r = await api('listDocs', { status: status || '', limit: 100 }, { quiet: true });
+  await cached('docs:' + (status || ''), 'listDocs', { status: status || '', limit: 100 }, r => {
   if (stale(my) || !$('#lst')) return;
   $('#lst').innerHTML = r.items.length ? `<div class="muted small" style="margin-bottom:8px">${r.total} รายการ</div><div class="fld" style="gap:10px">${r.items.map(docCard).join('')}</div>` : '<div class="empty">ไม่มีเอกสารในหมวดนี้</div>';
+  });
 }
 route('/docs', () => docsPage(''));
 route('/docs/:status', s => docsPage(s));
 
 /* ---------- รายละเอียดเอกสาร ---------- */
 route('/doc/:no', async no => {
-  const my = S.seq; const r = await api('getDoc', { doc_no: no }); if (stale(my)) return;
+  let painted = false; // วาดครั้งแรกเสมอ ครั้งต่อไปข้ามถ้ามีหน้าต่างค้าง (เช่น กำลังพิมพ์เหตุผล)
+  await cached('doc:' + no, 'getDoc', { doc_no: no }, r => { if (painted && document.querySelector('.modal-bg')) return; painted = true; docPage(r); });
+});
+function docPage(r) {
   const d = r.doc, u = S.user, L = r.lines;
   const mine = d.requested_by === u.user_id;
   const canApprove = d.doc_type === 'REQ' && d.status === 'PENDING' && isRole('APPROVER', 'ADMIN') && !mine;
@@ -767,7 +859,7 @@ route('/doc/:no', async no => {
       ${L.map(l => `<tr><td><div style="font-weight:600">${esc(l.mat_name)}</div><div class="small" style="color:var(--m2)">${esc(l.mat_id)} · ${esc(l.unit)} · คงเหลือ ${fmtN(l.stock_at_location)}</div>${l.boq && d.status === 'PENDING' ? `<div style="margin-top:4px">${stChip(l.boq.level, boqLv[l.boq.level] + (l.boq.pct_after !== undefined ? ' ' + l.boq.pct_after + '%' : ''))}</div>` : ''}</td>
         <td class="r">${fmtN(l.qty_requested)}</td><td class="r">${l.qty_approved === null ? '-' : fmtN(l.qty_approved)}</td><td class="r">${fmtN(l.qty_issued)}</td></tr>`).join('')}
     </tbody></table></div>
-    <div class="line"><span class="muted">มูลค่ารวม</span><b class="disp" style="font-size:18px">${fmtB(d.total_amount)}</b></div>
+    ${money() && d.total_amount !== null ? `<div class="line"><span class="muted">มูลค่ารวม</span><b class="disp" style="font-size:18px">${fmtB(d.total_amount)}</b></div>` : ''}
     ${d.note ? `<div class="muted">หมายเหตุ: ${esc(d.note)}</div>` : ''}
     <div class="muted small">ลายเซ็น: อนุมัติ ${r.signatures.approve ? '✓' : '–'} · สโตร์ ${r.signatures.issue ? '✓' : '–'} · ผู้รับ ${r.signatures.receive ? '✓' : '–'}</div>
   </main>${canApprove || canIssue || canCancel ? `<div class="foot">
@@ -785,7 +877,7 @@ route('/doc/:no', async no => {
       try { const x = await api('rejectDoc', { doc_no: d.doc_no, reason: why }); close(); toast('บันทึกไม่อนุมัติแล้ว'); shareDoc(x.doc, 'ไม่อนุมัติ: ' + why); render(); } catch (e) { showErr(e, 'merr'); }
     };
   });
-});
+}
 
 /* ---------- อนุมัติ ---------- */
 route('/approve/:no', async no => {
@@ -863,7 +955,7 @@ function lineEditor(items, opt) {
     <div class="line"><div class="grow"><div style="font-weight:600">${esc(m.name)}</div><div class="small" style="color:var(--m2)">${esc(m.mat_id)} · ${esc(m.unit)}${opt.locId ? ' · คงเหลือ ' + fmtN(stockAt(opt.locId, m.mat_id)) : ''}</div></div>
       <button class="iconbtn" data-del="${i}" aria-label="ลบรายการ" style="color:var(--m2);width:36px;height:36px">${ico('x', 18)}</button></div>
     <div class="line"><div class="qty"><button type="button" data-dec="${i}" aria-label="ลด">−</button><input type="number" inputmode="decimal" min="0" step="any" value="${it.qty}" data-q="${i}" aria-label="จำนวน ${esc(m.name)}"><button type="button" class="p" data-inc="${i}" aria-label="เพิ่ม">+</button></div>
-      ${opt.price ? `<div class="row small" style="gap:6px">฿<input type="number" inputmode="decimal" min="0" step="any" value="${it.unit_price}" data-pr="${i}" aria-label="ราคาต่อหน่วย" style="width:90px;height:38px;border:1.5px solid var(--ln);border-radius:10px;text-align:right;padding:0 8px;font-size:15px">/${esc(m.unit)}</div>` : `<span class="small" style="color:${opt.locId && stockAt(opt.locId, m.mat_id) < it.qty ? 'var(--bad)' : 'var(--m2)'}">${fmtB(it.qty * (m.unit_price || 0))}</span>`}</div></div>`; }).join('')
+      ${opt.price && money() ? `<div class="row small" style="gap:6px">฿<input type="number" inputmode="decimal" min="0" step="any" value="${it.unit_price}" data-pr="${i}" aria-label="ราคาต่อหน่วย" style="width:90px;height:38px;border:1.5px solid var(--ln);border-radius:10px;text-align:right;padding:0 8px;font-size:15px">/${esc(m.unit)}</div>` : `<span class="small" style="color:${opt.locId && stockAt(opt.locId, m.mat_id) < it.qty ? 'var(--bad)' : 'var(--m2)'}">${opt.locId && stockAt(opt.locId, m.mat_id) < it.qty ? 'สต็อกไม่พอ' : ''}${money() && !opt.price ? ' ' + fmtB(it.qty * (m.unit_price || 0)) : ''}</span>`}</div></div>`; }).join('')
     : '<div class="empty">ยังไม่มีรายการ กด "เพิ่มวัสดุ"</div>';
 }
 function bindLines(items, rerender) {
@@ -874,37 +966,68 @@ function bindLines(items, rerender) {
   $$('[data-pr]').forEach(i => i.onchange = () => { items[+i.dataset.pr].unit_price = Math.max(0, +i.value || 0); });
 }
 
-/* ---------- สร้างใบเบิก ---------- */
+/* ---------- สร้างใบเบิก: เลือกหน้างาน → เพิ่มวัสดุ → พรีวิว → ส่ง ---------- */
 route('/req/new', () => {
-  if (!isRole('REQUESTER', 'APPROVER', 'ADMIN')) return go('/home');
   const B = S.boot;
-  const D = S.draft = S.draft || { items: [], uuid: uuid(), work: '', loc: '', note: '' };
-  const pid = S.projectId, sites = B.locations.filter(l => l.project_id === pid);
-  if (!D.loc || !sites.some(s => s.location_id === D.loc)) D.loc = (sites[0] || {}).location_id || '';
+  const D = S.draft = S.draft || { items: [], uuid: uuid(), work: '', loc: '', note: '', pid: '', preview: false };
+  const projects = B.projects;
+  if (!projects.some(p => p.project_id === D.pid)) D.pid = (projects.find(p => p.mine) || projects[0] || {}).project_id || '';
+  const sitesOf = pid => B.locations.filter(l => l.project_id === pid);
+  const fixLoc = () => { const st = sitesOf(D.pid); if (!st.some(x => x.location_id === D.loc)) D.loc = (st[0] || {}).location_id || ''; };
+  fixLoc();
   const draw = () => {
-    $app.innerHTML = topbar('สร้างใบเบิก', `${projOf(pid).project_code || ''} · ${projOf(pid).name || ''}`, '/home') + `<main>
-      ${!pid ? '<div class="note bad">บัญชีนี้ยังไม่มีโครงการ กรุณาติดต่อแอดมิน</div>' : ''}
-      ${sites.length > 1 ? `<div class="fld"><label for="lc">เบิกจากคลัง</label><div class="inp"><select id="lc">${sites.map(s => `<option value="${esc(s.location_id)}" ${s.location_id === D.loc ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div></div>` : ''}
+    const P = projects.find(p => p.project_id === D.pid) || {}, sites = sitesOf(D.pid);
+    if (D.preview) return drawPreview(P);
+    $app.innerHTML = topbar('สร้างใบเบิก', 'ขั้นที่ 1: กรอกรายการ', '/home') + `<main>
+      ${!projects.length ? '<div class="note bad">ยังไม่มีโครงการที่เปิดอยู่ กรุณาติดต่อแอดมิน</div>' : ''}
+      <div class="fld"><label for="pj">หน้างาน / โครงการ</label><div class="inp"><select id="pj">${projects.map(p => `<option value="${esc(p.project_id)}" ${p.project_id === D.pid ? 'selected' : ''}>${esc(p.project_code)} · ${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="hint">${esc(P.location || '')}${sites.length === 1 ? (P.location ? ' · ' : '') + 'เบิกจาก ' + esc(sites[0].name) : ''}</div></div>
+      ${sites.length > 1 ? `<div class="fld"><label for="lc">เบิกจากคลัง</label><div class="inp"><select id="lc">${sites.map(x => `<option value="${esc(x.location_id)}" ${x.location_id === D.loc ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div></div>` : ''}
+      ${D.pid && !sites.length ? '<div class="note warn">หน้างานนี้ยังไม่มีคลัง กรุณาแจ้งแอดมิน</div>' : ''}
       <div class="fld"><label for="wc">หมวดงาน / จุดใช้งาน</label><div class="inp"><select id="wc"><option value="">เลือกหมวดงาน</option>${B.lists.work_categories.map(w => `<option ${w === D.work ? 'selected' : ''}>${esc(w)}</option>`).join('')}</select></div></div>
       <div class="line"><span class="lbl">รายการวัสดุ (${D.items.length})</span><button class="btn sm dark" id="add">${ico('plus', 18)}เพิ่มวัสดุ</button></div>
       <div class="fld" style="gap:10px">${lineEditor(D.items, { locId: D.loc })}</div>
       <div class="fld"><label for="nt">หมายเหตุ (ไม่บังคับ)</label><textarea class="ta" id="nt" maxlength="300">${esc(D.note)}</textarea></div>
       <div id="err"></div></main>
-      <div class="foot"><div class="grow"><div class="small" style="color:var(--m2)">${D.items.length} รายการ · มูลค่าประมาณ</div><div class="disp" style="font-weight:700;font-size:19px">${fmtB(D.items.reduce((s, it) => s + it.qty * (matOf(it.mat_id).unit_price || 0), 0))}</div></div><button class="btn" id="ok" ${pid ? '' : 'disabled'}>ส่งขออนุมัติ</button></div>`;
+      <div class="foot"><div class="grow"><div class="small" style="color:var(--m2)">${D.items.length} รายการ${money() ? ' · มูลค่าประมาณ' : ''}</div>${money() ? `<div class="disp" style="font-weight:700;font-size:19px">${fmtB(D.items.reduce((t, it) => t + it.qty * (matOf(it.mat_id).unit_price || 0), 0))}</div>` : ''}</div><button class="btn" id="ok" ${D.loc ? '' : 'disabled'}>ตรวจสอบก่อนส่ง</button></div>`;
     bindCommon();
     const keep = () => { D.work = $('#wc').value; D.note = $('#nt').value; if ($('#lc')) D.loc = $('#lc').value; };
+    $('#pj').onchange = e => { keep(); D.pid = e.target.value; fixLoc(); draw(); };
     if ($('#lc')) $('#lc').onchange = () => { keep(); draw(); };
     $('#add').onclick = () => { keep(); matPicker(id => { const ex = D.items.find(x => x.mat_id === id); if (ex) ex.qty++; else D.items.push({ mat_id: id, qty: 1 }); draw(); }, D.loc); };
     bindLines(D.items, () => { keep(); draw(); });
-    $('#ok').onclick = async () => {
+    $('#ok').onclick = () => {
       keep();
-      const items = D.items.filter(x => x.qty > 0);
+      D.items = D.items.filter(x => x.qty > 0);
       if (!D.work) return showErr(new Error('กรุณาเลือกหมวดงาน'), 'err');
-      if (!items.length) return showErr(new Error('กรุณาเพิ่มวัสดุอย่างน้อย 1 รายการ'), 'err');
+      if (!D.items.length) return showErr(new Error('กรุณาเพิ่มวัสดุอย่างน้อย 1 รายการ'), 'err');
+      D.preview = true; draw();
+    };
+  };
+  const drawPreview = P => {
+    const loc = locOf(D.loc);
+    const short = D.items.filter(it => stockAt(D.loc, it.mat_id) < it.qty);
+    $app.innerHTML = topbar('ตรวจสอบใบเบิก', 'ขั้นที่ 2: ตรวจก่อนส่ง', null) + `<main>
+      <div class="card" style="gap:4px">
+        <div class="kv" style="border:none"><span>หน้างาน</span><b>${esc(P.project_code)} · ${esc(P.name)}</b></div>
+        <div class="kv"><span>เบิกจากคลัง</span><span>${esc(loc.name || '-')}</span></div>
+        <div class="kv"><span>หมวดงาน</span><span>${esc(D.work)}</span></div>
+        <div class="kv"><span>ผู้ขอเบิก</span><span>${esc(S.user.name)}</span></div>
+      </div>
+      <div class="card" style="padding:0;overflow-x:auto"><table class="tb"><thead><tr><th>#</th><th>รายการ</th><th class="r">จำนวน</th>${money() ? '<th class="r">มูลค่า</th>' : ''}</tr></thead><tbody>
+        ${D.items.map((it, i) => { const m = matOf(it.mat_id); const lack = stockAt(D.loc, it.mat_id) < it.qty; return `<tr><td>${i + 1}</td><td><div style="font-weight:600">${esc(m.name)}</div><div class="small" style="color:${lack ? 'var(--bad)' : 'var(--m2)'}">${esc(m.mat_id)} · คงเหลือ ${fmtN(stockAt(D.loc, it.mat_id))}${lack ? ' (ไม่พอ)' : ''}</div></td><td class="r"><b>${fmtN(it.qty)}</b> ${esc(m.unit)}</td>${money() ? `<td class="r">${fmtB(it.qty * (m.unit_price || 0))}</td>` : ''}</tr>`; }).join('')}
+      </tbody></table></div>
+      ${money() ? `<div class="line"><span class="muted">มูลค่ารวมโดยประมาณ</span><b class="disp" style="font-size:18px">${fmtB(D.items.reduce((t, it) => t + it.qty * (matOf(it.mat_id).unit_price || 0), 0))}</b></div>` : ''}
+      ${short.length ? `<div class="note warn">มี ${short.length} รายการที่สต็อกในคลังไม่พอ ส่งได้ แต่สโตร์อาจจ่ายได้ไม่ครบ</div>` : ''}
+      ${D.note ? `<div class="muted">หมายเหตุ: ${esc(D.note)}</div>` : ''}
+      <div class="note info">เมื่อส่งแล้ว ผู้อนุมัติของหน้างานนี้จะได้รับแจ้งเตือนทันที</div>
+      <div id="err"></div></main>
+      <div class="foot"><button class="btn sec" id="back">กลับไปแก้ไข</button><button class="btn full" id="send">ยืนยันส่งใบเบิก</button></div>`;
+    $('#back').onclick = () => { D.preview = false; draw(); };
+    $('#send').onclick = async () => {
       try {
-        const x = await api('createReq', { client_uuid: D.uuid, project_id: pid, from_location_id: D.loc, work_category: D.work, note: D.note, lines: items.map(it => ({ mat_id: it.mat_id, qty: it.qty })) });
-        S.draft = null; S.boot = null;
-        reqDone(x);
+        const x = await api('createReq', { client_uuid: D.uuid, project_id: D.pid, from_location_id: D.loc, work_category: D.work, note: D.note, lines: D.items.map(it => ({ mat_id: it.mat_id, qty: it.qty })) });
+        S.draft = null; reqDone(x);
       } catch (e) { showErr(e, 'err'); }
     };
   };
@@ -917,8 +1040,8 @@ function reqDone(x) {
       <div style="width:80px;height:80px;border-radius:40px;background:var(--ac);color:var(--dk);display:flex;align-items:center;justify-content:center">${ico('check', 42, 2.6)}</div>
       <h2 style="margin:0">${esc(x.doc.doc_no)}</h2><div class="muted">${x.duplicate ? 'ใบนี้ส่งไปแล้วก่อนหน้า (ระบบกันส่งซ้ำ)' : 'ส่งขออนุมัติเรียบร้อย'}</div></div>
     ${w.length ? `<div class="fld" style="gap:8px"><span class="lbl">ข้อควรทราบ</span>${w.map(z => `<div class="note ${z.type === 'BOQ_OVER' || z.type === 'STOCK' ? 'bad' : 'warn'}">${esc(z.message)}</div>`).join('')}</div>` : ''}
-    <div class="note info">กด "ส่งต่อให้ผู้อนุมัติ" เพื่อแจ้งหัวหน้าทาง LINE ได้ทันที</div>
-  </main><div class="foot"><button class="btn sec" data-go="/doc/${encodeURIComponent(x.doc.doc_no)}">ดูใบเบิก</button><button class="btn full" id="sh">${ico('share', 18)}ส่งต่อให้ผู้อนุมัติ</button></div>`;
+    <div class="note info">ระบบแจ้งเตือนผู้อนุมัติแล้ว ถ้าต้องการเร่ง กด "ส่งต่อทาง LINE" ได้อีกทาง</div>
+  </main><div class="foot"><button class="btn sec" data-go="/doc/${encodeURIComponent(x.doc.doc_no)}">ดูใบเบิก</button><button class="btn full" id="sh">${ico('share', 18)}ส่งต่อทาง LINE</button></div>`;
   bindCommon();
   $('#sh').onclick = () => shareDoc(x.doc, 'ขออนุมัติใบเบิก');
 }
@@ -947,7 +1070,7 @@ route('/receive', () => {
       keep(); const items = D.items.filter(x => x.qty > 0);
       if (!items.length) return showErr(new Error('กรุณาเพิ่มวัสดุอย่างน้อย 1 รายการ'), 'err');
       try {
-        const x = await api('receive', { client_uuid: D.uuid, location_id: D.loc, supplier_ref: D.ref, note: D.note, signature: pad.isEmpty() ? '' : pad.dataUrl(), lines: items.map(it => ({ mat_id: it.mat_id, qty: it.qty, unit_price: it.unit_price })) });
+        const x = await api('receive', { client_uuid: D.uuid, location_id: D.loc, supplier_ref: D.ref, note: D.note, signature: pad.isEmpty() ? '' : pad.dataUrl(), lines: items.map(it => money() ? { mat_id: it.mat_id, qty: it.qty, unit_price: it.unit_price } : { mat_id: it.mat_id, qty: it.qty }) });
         S.rcv = null; S.boot = null; toast('บันทึกรับเข้า ' + x.doc.doc_no + ' แล้ว'); go('/doc/' + encodeURIComponent(x.doc.doc_no));
       } catch (e) { showErr(e, 'err'); }
     };
@@ -957,8 +1080,8 @@ route('/receive', () => {
 
 /* ---------- สต็อก ---------- */
 route('/stock', async () => {
-  const my = S.seq; await loadBoot(true); if (stale(my)) return;
   const B = S.boot;
+  if (!S.soft) loadBoot(true);
   S.stockLoc = B.locations.some(l => l.location_id === S.stockLoc) ? S.stockLoc : (B.locations[0] || {}).location_id;
   $app.innerHTML = topbar('สต็อกคงเหลือ', '', null) + `<main>
     ${B.locations.length > 1 ? `<div class="inp"><select id="lc" aria-label="เลือกคลัง">${B.locations.map(l => `<option value="${esc(l.location_id)}" ${l.location_id === S.stockLoc ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></div>` : `<div class="muted">${esc((B.locations[0] || {}).name || 'ไม่มีคลังที่มีสิทธิ์')}</div>`}
@@ -1046,22 +1169,120 @@ async function adminUsers(tab) {
   });
 }
 
+/* ---------- แอดมิน: จัดการโครงการ (หน้างาน) ---------- */
+route('/admin/projects', async () => {
+  if (!isRole('ADMIN')) return go('/home');
+  const my = S.seq;
+  $app.innerHTML = topbar('จัดการโครงการ', 'หน้างานที่ให้เลือกตอนเบิก', '/home') + `<main>
+    <button class="btn" id="add">${ico('plus', 18)}เพิ่มโครงการใหม่</button>
+    <div id="lst" class="fld" style="gap:10px"><div class="empty">กำลังโหลด…</div></div></main>`;
+  bindCommon();
+  const stTh = { ACTIVE: ['OK', 'เปิดอยู่'], ON_HOLD: ['WARN', 'พักไว้'], CLOSED: ['REJECTED', 'ปิดแล้ว'] };
+  let list = [];
+  const paint = r => {
+    list = r; if (stale(my) || !$('#lst')) return;
+    $('#lst').innerHTML = r.length ? r.map(p => `<button class="card" data-p="${esc(p.project_id)}" style="text-align:left;gap:4px">
+      <div class="line"><b class="disp" style="font-size:17px">${esc(p.project_code)}</b>${stChip(stTh[p.status][0], stTh[p.status][1])}</div>
+      <div style="font-weight:600">${esc(p.name)}</div><div class="small" style="color:var(--m2)">${esc(p.location || '-')} · ${esc(p.site_name || 'ไม่มีคลัง')}${p.manager_name ? ' · หัวหน้า ' + esc(p.manager_name) : ''}</div></button>`).join('') : '<div class="empty">ยังไม่มีโครงการ</div>';
+    $$('#lst [data-p]').forEach(b => b.onclick = () => editProject(list.find(x => x.project_id === b.dataset.p)));
+  };
+  $('#add').onclick = () => editProject(null);
+  await cached('projects', 'adminListProjects', {}, paint);
+});
+async function editProject(p) {
+  let users = [];
+  try { users = await api('adminListUsers', { status: 'ACTIVE' }); } catch (e) { }
+  const isNew = !p; p = p || { status: 'ACTIVE' };
+  modal(`<div class="line"><h2>${isNew ? 'เพิ่มโครงการใหม่' : 'แก้ไข ' + esc(p.project_code)}</h2><button class="iconbtn" data-close aria-label="ปิด">${ico('x')}</button></div>
+    ${field('pc', 'รหัสโครงการ (ใช้ในเลขเอกสาร แก้ภายหลังไม่ได้)', { value: p.project_code || '', mono: true, attrs: `maxlength="10" autocapitalize="characters" ${isNew ? '' : 'disabled'}`, hint: 'A-Z และ 0-9 ยาว 2–10 ตัว เช่น SB02' })}
+    ${field('pn', 'ชื่อโครงการ / หน้างาน', { value: p.name || '', attrs: 'maxlength="100"' })}
+    ${field('pl', 'ที่ตั้ง (ไม่บังคับ)', { value: p.location || '', attrs: 'maxlength="100"' })}
+    <div class="fld"><label for="pm">หัวหน้าโครงการ (ไม่บังคับ)</label><div class="inp"><select id="pm"><option value="">-</option>${users.map(u => `<option value="${esc(u.user_id)}" ${u.user_id === p.manager_user_id ? 'selected' : ''}>${esc(u.name)} (${esc(ROLE_TH[u.role] || u.role)})</option>`).join('')}</select></div></div>
+    <div class="fld"><span class="lbl">สถานะ</span><div class="seg" id="ps" style="grid-template-columns:repeat(3,1fr)">${[['ACTIVE', 'เปิดอยู่'], ['ON_HOLD', 'พักไว้'], ['CLOSED', 'ปิดแล้ว']].map(([k, n]) => `<button type="button" class="${p.status === k ? 'on' : ''}" data-s="${k}">${n}</button>`).join('')}</div>
+      <div class="hint">เฉพาะ "เปิดอยู่" ที่แสดงให้เลือกตอนเบิก · สร้างใหม่ระบบสร้างคลังไซต์ให้อัตโนมัติ</div></div>
+    <div class="muted small">ผู้อนุมัติและสโตร์ของโครงการ กำหนดได้ที่หน้า "ผู้สมัคร/ผู้ใช้"</div>
+    <div id="merr"></div><button class="btn" id="sv">${isNew ? 'สร้างโครงการ' : 'บันทึก'}</button>`, (bg, close) => {
+    $$('#ps button', bg).forEach(b => b.onclick = () => $$('#ps button', bg).forEach(x => x.classList.toggle('on', x === b)));
+    $('#sv', bg).onclick = async () => {
+      const code = $('#pc', bg).value.trim().toUpperCase(), name = $('#pn', bg).value.trim();
+      if (isNew && !/^[A-Z0-9]{2,10}$/.test(code)) return showErr(new Error('รหัสโครงการใช้ A-Z และ 0-9 ยาว 2–10 ตัว'), 'merr');
+      if (!name) return showErr(new Error('กรุณากรอกชื่อโครงการ'), 'merr');
+      try {
+        await api('adminSaveProject', { project_id: p.project_id || '', project_code: code, name, location: $('#pl', bg).value.trim(), manager_user_id: $('#pm', bg).value, status: ($('#ps .on', bg) || {}).dataset.s || 'ACTIVE' });
+        close(); toast(isNew ? 'สร้างโครงการ ' + code + ' แล้ว' : 'บันทึกแล้ว'); await fetchBoot().catch(() => { }); render();
+      } catch (e) { showErr(e, 'merr'); }
+    };
+  });
+}
+
+/* ---------- Push (Firebase Cloud Messaging) ---------- */
+const FB_VER = '10.14.1';
+const loadScript = src => new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"]`)) return res(); const x = document.createElement('script'); x.src = src; x.onload = res; x.onerror = () => rej(new Error('โหลดระบบแจ้งเตือนไม่สำเร็จ ตรวจสอบอินเทอร์เน็ต')); document.head.appendChild(x); });
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+function pushSupport() {
+  if (!CFG.FIREBASE || !CFG.FIREBASE_VAPID_KEY) return { ok: false, why: 'ยังไม่ได้ใส่ค่าตั้ง Firebase ในไฟล์ config.js (แจ้งแอดมิน)' };
+  if (S.boot && !S.boot.settings.push_configured) return { ok: false, why: 'แอดมินยังไม่ได้ตั้งค่า Push ฝั่งระบบ (เมนู KTY 1994 ข้อ 4)' };
+  if (isIOS() && !isStandalone()) return { ok: false, why: 'บน iPhone/iPad ต้องติดตั้งแอปลงหน้าจอโฮมก่อน (Safari → แชร์ → เพิ่มไปยังหน้าจอโฮม) แล้วเปิดจากไอคอน' };
+  if (!('serviceWorker' in navigator) || !('Notification' in window) || !('PushManager' in window)) return { ok: false, why: 'เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน Push (ยังได้รับแจ้งเตือนในแอปและอีเมล)' };
+  if (location.protocol !== 'https:') return { ok: false, why: 'ต้องเปิดแอปผ่าน https (GitHub Pages)' };
+  return { ok: true };
+}
+async function fbMessaging() {
+  await loadScript(`https://www.gstatic.com/firebasejs/${FB_VER}/firebase-app-compat.js`);
+  await loadScript(`https://www.gstatic.com/firebasejs/${FB_VER}/firebase-messaging-compat.js`);
+  if (!firebase.apps.length) firebase.initializeApp(CFG.FIREBASE);
+  const m = firebase.messaging();
+  if (!S.fbFg) { S.fbFg = true; m.onMessage(p => { const n = p.notification || p.data || {}; const link = (p.data && p.data.link) || ''; const h = link.indexOf('#') >= 0 ? link.slice(link.indexOf('#') + 1) : ''; markStale(); notifyInApp((n.title || 'แจ้งเตือน') + (n.body ? ': ' + n.body : ''), h); }); }
+  return m;
+}
+async function enablePush() {
+  const sp = pushSupport(); if (!sp.ok) throw new Error(sp.why);
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') throw new Error('ยังไม่ได้อนุญาตการแจ้งเตือน เปิดได้ที่การตั้งค่าเบราว์เซอร์/มือถือ');
+  busy(true);
+  try {
+    const m = await fbMessaging();
+    const token = await m.getToken({ vapidKey: CFG.FIREBASE_VAPID_KEY, serviceWorkerRegistration: await navigator.serviceWorker.ready });
+    if (!token) throw new Error('ขอโทเคนแจ้งเตือนไม่สำเร็จ');
+    await api('pushRegister', { token, device: (isIOS() ? 'iOS' : /Android/.test(navigator.userAgent) ? 'Android' : 'Desktop') + ' ' + navigator.userAgent.slice(0, 60) });
+    localStorage.setItem('kty_push', token);
+  } finally { busy(false); }
+}
+async function disablePush() {
+  const t = localStorage.getItem('kty_push');
+  await api('pushUnregister', { token: t || '' });
+  localStorage.removeItem('kty_push');
+  try { const m = await fbMessaging(); await m.deleteToken(); } catch (e) { }
+}
+
 /* ---------- โปรไฟล์ ---------- */
 route('/profile', () => {
   const u = S.user;
   $app.innerHTML = topbar('โปรไฟล์ของฉัน', '', null) + `<main>
     <div class="row" style="gap:14px">${avatar(u, 72)}<div><div class="disp" style="font-weight:700;font-size:20px">${esc((u.title || '') + u.name)}</div><div class="muted">${esc(u.position || '')} · ${esc(ROLE_TH[u.role] || u.role)}</div></div></div>
     <div class="card"><div class="kv" style="border:none"><span>Username</span><span>${esc(u.username)}</span></div><div class="kv"><span>อีเมล</span><span style="word-break:break-all">${esc(u.email)}</span></div><div class="kv"><span>มือถือ</span><span>${esc(fmtPhone(u.phone))}</span></div><div class="kv"><span>โครงการ</span><span>${esc(u.project_ids === 'ALL' ? 'ทุกโครงการ' : S.boot.projects.map(p => p.project_code).join(', '))}</span></div></div>
+    <h2>การแจ้งเตือน</h2>
+    <div class="card" style="gap:10px">
+      <div class="line"><div><div style="font-weight:600">แจ้งเตือนในแอป</div><div class="small" style="color:var(--m2)">เช็กงานใหม่อัตโนมัติขณะเปิดแอป มีเสียงและสั่น</div></div><label class="row" style="gap:6px"><input type="checkbox" id="snd" ${localStorage.getItem('kty_sound') === 'off' ? '' : 'checked'} style="width:22px;height:22px;accent-color:var(--dk)">เสียง</label></div>
+      <div class="kv" style="flex-direction:column;align-items:stretch;gap:8px"><div class="line"><div><div style="font-weight:600;color:var(--tx)">แจ้งเตือน Push</div><div class="small" id="pst">${localStorage.getItem('kty_push') ? 'เปิดอยู่ในเครื่องนี้' : 'ยังไม่ได้เปิดในเครื่องนี้'}</div></div>${localStorage.getItem('kty_push') ? '<button class="btn sm sec" id="poff">ปิด</button>' : '<button class="btn sm" id="pon">เปิด</button>'}</div>
+        <div class="small" id="pwhy" style="color:var(--m2)">${pushSupport().ok ? 'เด้งเตือนแม้ปิดแอปอยู่ เช่น มีใบเบิกใหม่ อนุมัติแล้ว จ่ายของแล้ว' : esc(pushSupport().why)}</div>
+        ${localStorage.getItem('kty_push') ? '<button class="btn sm sec" id="ptest">ส่งแจ้งเตือนทดสอบ</button>' : ''}</div>
+    </div>
     <h2>เปลี่ยนรหัสผ่าน</h2>
     ${field('op', 'รหัสผ่านเดิม', { type: 'password', attrs: 'autocomplete="current-password"' })}
     ${field('np', 'รหัสผ่านใหม่', { type: 'password', attrs: 'autocomplete="new-password" maxlength="64"', right: eyeBtn('np'), hint: '8 ตัวขึ้นไป มีตัวอักษรและตัวเลข' })}
     ${field('np2', 'ยืนยันรหัสผ่านใหม่', { type: 'password', attrs: 'autocomplete="new-password" maxlength="64"' })}
     <div id="err"></div><button class="btn" id="cp">เปลี่ยนรหัสผ่าน</button>
     <button class="btn danger" id="lo">${ico('logout', 18)}ออกจากระบบ</button>
-    <div class="muted small" style="text-align:center">${esc(CFG.APP_NAME || '')} · แอป v1.0</div>
+    <div class="muted small" style="text-align:center">${esc(CFG.APP_NAME || '')} · แอป v1.2</div>
   </main>${bottomNav('me')}`;
   bindCommon();
-  $('#lo').onclick = () => logout();
+  $('#lo').onclick = async () => { if (localStorage.getItem('kty_push')) { try { await disablePush(); } catch (e) { } } logout(); };
+  $('#snd').onchange = e => localStorage.setItem('kty_sound', e.target.checked ? 'on' : 'off');
+  if ($('#pon')) $('#pon').onclick = async () => { try { await enablePush(); toast('เปิดแจ้งเตือน Push แล้ว'); render(); } catch (e) { $('#pwhy').innerHTML = `<span style="color:var(--bad)">${esc(e.message)}</span>`; } };
+  if ($('#poff')) $('#poff').onclick = async () => { try { await disablePush(); toast('ปิดแจ้งเตือน Push แล้ว'); render(); } catch (e) { toast(e.message, true); } };
+  if ($('#ptest')) $('#ptest').onclick = async () => { try { const r = await api('pushTest'); toast(r.sent ? 'ส่งแล้ว รอสักครู่ (ถ้าเปิดแอปอยู่จะขึ้นในแอป)' : 'ไม่พบอุปกรณ์ที่เปิดรับ ลองปิดแล้วเปิดใหม่', !r.sent); } catch (e) { toast(e.message, true); } };
   $('#cp').onclick = async () => {
     const o = $('#op').value, p = $('#np').value, p2 = $('#np2').value, r = V.pwRules(p, u.username);
     if (!o) return showErr(new Error('กรุณากรอกรหัสผ่านเดิม'), 'err');

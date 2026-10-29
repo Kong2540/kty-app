@@ -1,6 +1,20 @@
-/* KTY 1994 ระบบเบิก–จ่ายวัสดุ : ตั้งค่า
-   วาง URL เว็บแอปจาก Apps Script (ลงท้ายด้วย /exec) ระหว่างเครื่องหมายคำพูดด้านล่าง */
-window.KTY_CONFIG = {
-  API_URL: "https://script.google.com/macros/s/AKfycbxLPOXQKCFNhqOTdb92Z7wQHUfn5ErO73hWh6KbMDuSU07OEtbS89mZLRATm5rS-xQo6A/exec",
-  APP_NAME: "KTY 1994 ระบบเบิก-จ่ายวัสดุ"
+/* KTY 1994 ระบบเบิก–จ่ายวัสดุ : ตั้งค่า (แก้ด้วย Notepad แล้วอัปโหลดขึ้น GitHub) */
+self.KTY_CONFIG = {
+  /* 1) URL เว็บแอปจาก Apps Script (ลงท้ายด้วย /exec) */
+  API_URL: "https://script.google.com/macros/s/AKfycbxf_UfYMUvnEecDRkl5DFsxF1CMBIS6NVDnQDWuytqoAc174OHqPlbuICOPlmDNS_QHAw/exec",
+
+  /* 2) แจ้งเตือน Push (ไม่บังคับ) : วางค่าจาก Firebase ตามคู่มือ ถ้ายังไม่ใช้ให้คง null ไว้ */
+  FIREBASE: null,
+  /* ตัวอย่าง:
+  FIREBASE: {
+    apiKey: "AIza...",
+    authDomain: "kty1994-xxxx.firebaseapp.com",
+    projectId: "kty1994-xxxx",
+    messagingSenderId: "1234567890",
+    appId: "1:1234567890:web:abcdef"
+  },
+  */
+  FIREBASE_VAPID_KEY: "",
+
+  APP_NAME: "KTY 1994 ระบบเบิก–จ่ายวัสดุ"
 };

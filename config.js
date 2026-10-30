@@ -1,7 +1,7 @@
 /* KTY 1994 ระบบเบิก–จ่ายวัสดุ : ตั้งค่า (แก้ด้วย Notepad แล้วอัปโหลดขึ้น GitHub) */
 self.KTY_CONFIG = {
   /* 1) URL เว็บแอปจาก Apps Script (ลงท้ายด้วย /exec) */
-  API_URL: "https://script.google.com/macros/s/AKfycbyzGR2CUGVMCHGgmyN2p66UmUzJi1q5vHaG0FAinaHbJAheju8ldcYaFTtkQRuyQIQh/exec",
+  API_URL: "https://script.google.com/macros/s/AKfycbyBPAhrxycqWdpDA9xsD5M-xVME71-CgviWLAXMOfObRToEykJxQKN_ENGGbZEFnCcu/exec",
 
   /* 2) แจ้งเตือน Push (ไม่บังคับ) : วางค่าจาก Firebase ตามคู่มือ ถ้ายังไม่ใช้ให้คง null ไว้ */
   FIREBASE: null,

@@ -61,7 +61,7 @@ const IC = {
   cam: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   stock: '<path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/>', tool: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>',
   cash: '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>', grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
-  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>', cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L22 7H6"/>', minus: '<path d="M5 12h14"/>', chev: '<path d="m6 9 6 6 6-6"/>', x: '<path d="M18 6 6 18M6 6l12 12"/>', logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>', tbl: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/>', cart: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.6L22 7H6"/>', minus: '<path d="M5 12h14"/>', chev: '<path d="m6 9 6 6 6-6"/>', x: '<path d="M18 6 6 18M6 6l12 12"/>', logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>'
 };
 const CAT_IC = {
   ALL: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -225,6 +225,8 @@ async function pulse() {
   if (isRole('APPROVER', 'ADMIN') && r.tasks.to_approve > prev.tasks.to_approve) msgs.push(['มีใบเบิกใหม่รออนุมัติ ' + (r.tasks.to_approve - prev.tasks.to_approve) + ' ใบ', '/docs/PENDING']);
   if (isRole('STORE', 'ADMIN') && r.tasks.to_issue > prev.tasks.to_issue) msgs.push(['มีใบเบิกรอจ่ายของ', '/docs/APPROVED,PARTIAL']);
   if (r.tasks.applicants > prev.tasks.applicants) msgs.push(['มีผู้สมัครใหม่รออนุมัติ', '/admin/users']);
+  if (isRole('ADMIN') && (r.tasks.diff_review || 0) > (prev.tasks.diff_review || 0)) msgs.push(['ผู้เบิกนับของไม่ตรงกับที่ส่ง รอคุณตรวจส่วนต่าง', '/inbox']);
+  if ((r.tasks.to_confirm || 0) > (prev.tasks.to_confirm || 0)) msgs.push(['สโตร์ส่งของถึงคุณแล้ว กรุณานับและยืนยันรับ', '/inbox']);
   const old = {}; prev.my_docs.forEach(d => (old[d.doc_no] = d.status));
   r.my_docs.forEach(d => { if (old[d.doc_no] && old[d.doc_no] !== d.status) msgs.push(['ใบเบิก ' + d.doc_no + ': ' + d.status_name, '/doc/' + encodeURIComponent(d.doc_no)]); });
   if (msgs.length) { markStale(); notifyInApp(msgs[0][0] + (msgs.length > 1 ? ' และอีก ' + (msgs.length - 1) + ' เรื่อง' : ''), msgs[0][1]); softRefresh(); }
@@ -295,7 +297,7 @@ function setHint(id, msg, state) {
   if (b) { b.classList.toggle('err', state === false); b.classList.toggle('ok', state === true); }
 }
 const eyeBtn = id => `<button type="button" class="iconbtn" style="width:36px;height:36px;color:var(--m2)" data-eye="${id}" aria-label="แสดงหรือซ่อนรหัสผ่าน">${ico('eye')}</button>`;
-function inboxCount(t) { t = t || {}; return (isRole('APPROVER', 'ADMIN') ? t.to_approve || 0 : 0) + (isRole('STORE', 'ADMIN') ? t.to_issue || 0 : 0) + (t.applicants || 0); }
+function inboxCount(t) { t = t || {}; return (isRole('APPROVER', 'ADMIN') ? t.to_approve || 0 : 0) + (isRole('STORE', 'ADMIN') ? t.to_issue || 0 : 0) + (t.applicants || 0) + (t.to_confirm || 0) + (isRole('ADMIN') ? t.diff_review || 0 : 0); }
 function bottomNav(cur) {
   const n = inboxCount(S.boot && S.boot.tasks);
   const it = (k, path, icon, label, badge) => `<a href="#${path}" class="${cur === k ? 'on' : ''}">${ico(icon, 22, 1.8)}${label}${badge ? `<span class="badge" style="top:0;right:calc(50% - 24px)">${badge}</span>` : ''}</a>`;
@@ -353,7 +355,7 @@ function sigBlock(id, label) {
 }
 
 /* ---------- image resize (รูปโปรไฟล์) ---------- */
-function resizeImage(file, max = 320) {
+function resizeImage(file, max = 320, q = 0.82) {
   return new Promise((res, rej) => {
     if (!/^image\//.test(file.type)) return rej(new Error('กรุณาเลือกไฟล์รูปภาพ'));
     const img = new Image(), url = URL.createObjectURL(file);
@@ -361,12 +363,101 @@ function resizeImage(file, max = 320) {
       const k = Math.min(1, max / Math.max(img.width, img.height));
       const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
-      res(c.toDataURL('image/jpeg', 0.82));
+      res(c.toDataURL('image/jpeg', q));
     };
     img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('เปิดไฟล์รูปนี้ไม่ได้')); };
     img.src = url;
   });
 }
+
+/* ---------- แนบรูปนับจำนวน: อัปโหลดทีละรูปเบื้องหลัง ลองใหม่เองเมื่อสัญญาณหลุด ---------- */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function photoState() { return { items: [], batch: 'b' + uuid().replace(/-/g, '').slice(0, 20) }; }
+function uploader(elId, st, opt) {
+  const counts = () => ({ ok: st.items.filter(i => i.status === 'ok').length, all: st.items.length, err: st.items.filter(i => i.status === 'err').length });
+  const draw = () => {
+    const el = document.getElementById(elId); if (!el) return;
+    const c = counts();
+    el.innerHTML = `<div class="card" style="padding:12px 14px;gap:8px">
+      <div class="line"><span class="lbl">${esc(opt.label)} <span style="color:var(--bad)">*</span></span><span class="small" style="color:${c.err ? 'var(--bad)' : 'var(--m2)'}">${c.all ? c.ok + '/' + c.all + ' รูป' + (c.err ? ' · ส่งไม่สำเร็จ ' + c.err : c.ok < c.all ? ' · กำลังส่ง' : ' ✓') : 'ยังไม่มีรูป'}</span></div>
+      <div class="hscroll" style="margin:0;padding:0">${st.items.map((it, i) => `<div class="pt" data-i="${i}"><img src="${it.data}" alt="รูปที่ ${i + 1}">
+        ${it.status === 'ok' ? `<span class="pok">${ico('check', 11, 3)}</span>` : it.status === 'err' ? `<button class="perr" data-retry="${i}" aria-label="ส่งใหม่">!</button>` : '<span class="pup"><i class="spin" style="width:18px;height:18px;border-width:2px"></i></span>'}
+        <button class="pdel" data-del="${i}" aria-label="ลบรูป">${ico('x', 12, 2.6)}</button></div>`).join('')}
+        <label class="padd">${ico('cam', 22, 1.7)}<span>ถ่ายรูป</span><input type="file" accept="image/*" capture="environment" class="sr" data-cap></label>
+        <label class="padd">${ico('inbox', 22, 1.7)}<span>เลือกรูป</span><input type="file" accept="image/*" multiple class="sr" data-pick></label></div>
+      <div class="small" style="color:var(--m2)">${esc(opt.hint || 'ถ่ายให้เห็นจำนวนชัด ๆ · แนบได้ไม่จำกัด · สัญญาณหลุดระบบส่งใหม่ให้เอง')}</div></div>`;
+    $$('[data-cap],[data-pick]', el).forEach(inp => inp.onchange = e => add(e.target.files));
+    $$('[data-del]', el).forEach(b => b.onclick = () => del(+b.dataset.del));
+    $$('[data-retry]', el).forEach(b => b.onclick = () => { st.items[+b.dataset.retry].status = 'wait'; pump(); });
+    $$('.pt img', el).forEach((im, i) => im.onclick = () => viewer(st.items.map(x => ({ url: x.data, label: opt.label })), i));
+    if (opt.onChange) opt.onChange(c);
+  };
+  const add = async files => {
+    for (const f of Array.from(files || [])) {
+      try { st.items.push({ data: await resizeImage(f, 1280, 0.78), status: 'wait' }); draw(); } catch (e) { toast(e.message, true); }
+    }
+    pump();
+  };
+  const del = async i => {
+    const it = st.items[i]; if (!it) return;
+    if (it.status === 'ok' && it.att_id) { try { await api('attachDelete', { att_id: it.att_id }, { quiet: true }); } catch (e) { return toast(e.message, true); } }
+    if (it.status === 'up') return toast('รอให้รูปนี้ส่งเสร็จก่อนจึงลบได้');
+    st.items.splice(i, 1); draw();
+  };
+  const pump = async () => {
+    if (st.busy) return; st.busy = true;
+    let it;
+    while ((it = st.items.find(x => x.status === 'wait'))) {
+      it.status = 'up'; draw();
+      for (let t = 0; t < 4; t++) {
+        try { const r = await api('attachPhoto', { stage: opt.stage, batch_id: st.batch, doc_no: opt.docNo || '', photo: it.data }, { quiet: true }); it.att_id = r.att_id; it.status = 'ok'; break; }
+        catch (e) { if (['BAD_INPUT', 'FORBIDDEN', 'NOT_FOUND', 'UNAUTHORIZED'].includes(e.code) || t === 3) { it.status = 'err'; if (t === 3 || e.code !== 'NETWORK') toast(e.message, true); break; } await sleep(1500 * (t + 1)); }
+      }
+      draw();
+    }
+    st.busy = false;
+  };
+  draw(); pump();
+  return { ready: () => { const c = counts(); return c.all > 0 && c.ok === c.all; }, counts, redraw: draw };
+}
+function gateBtn(btn, up, label) {
+  const c = up.counts();
+  btn.disabled = !up.ready();
+  btn.textContent = up.ready() ? label : c.all ? `รอรูปอัปโหลดครบ (${c.ok}/${c.all})` : 'แนบรูปอย่างน้อย 1 รูปก่อน';
+}
+
+/* ---------- ดูรูปเต็มจอ ---------- */
+const STAGE_TH = { ISSUE: 'สโตร์ส่งของ', CONFIRM: 'ผู้เบิกรับของ', RCV: 'รับเข้าคลัง' };
+function photoSrc(u, big) { return /^https:\/\//.test(u) ? u.replace(/sz=w\d+/, 'sz=' + (big ? 'w1600' : 'w400')) : (/^data:image\//.test(u) ? u : ''); }
+function viewer(list, idx) {
+  let i = idx;
+  const bg = document.createElement('div'); bg.className = 'viewer';
+  const draw = () => {
+    const p = list[i], src = photoSrc(p.url, true);
+    bg.innerHTML = `<div class="vtop"><span>${i + 1} / ${list.length}${p.label ? ' · ' + esc(p.label) : ''}${p.by ? ' · ' + esc(p.by) : ''}${p.at ? ' · ' + fmtD(p.at) : ''}</span><button class="iconbtn" data-x aria-label="ปิด">${ico('x', 22)}</button></div>
+      <div class="vimg" id="vimg">${src ? `<img src="${esc(src)}" alt="รูปที่ ${i + 1}" referrerpolicy="no-referrer">` : `<div class="empty">ตัวอย่างรูป (โหมดทดสอบ)</div>`}</div>
+      <div class="vnav"><button class="btn sec sm" data-p ${i ? '' : 'disabled'}>‹ ก่อนหน้า</button><span class="small" style="color:#B6A98E">แตะรูปเพื่อซูม</span><button class="btn sec sm" data-n ${i < list.length - 1 ? '' : 'disabled'}>ถัดไป ›</button></div>`;
+    $('[data-x]', bg).onclick = () => bg.remove();
+    $('[data-p]', bg).onclick = () => { if (i) { i--; draw(); } };
+    $('[data-n]', bg).onclick = () => { if (i < list.length - 1) { i++; draw(); } };
+    const im = $('#vimg img', bg); if (im) im.onclick = () => im.classList.toggle('z');
+  };
+  document.body.appendChild(bg); draw();
+}
+
+/* ---------- สลับมุมมอง การ์ด / รายการ / ตาราง ---------- */
+const VIEW_IC = { card: 'grid', list: 'list', table: 'tbl' };
+const getView = (k, d) => { const v = localStorage.getItem('kty_view_' + k); return ['card', 'list', 'table'].includes(v) ? v : d; };
+function viewToggle(k, cur, dark) {
+  return `<div class="vt${dark ? ' dk' : ''}" role="group" aria-label="มุมมอง">${['card', 'list', 'table'].map(v => `<button type="button" data-view="${v}" class="${v === cur ? 'on' : ''}" aria-label="${{ card: 'การ์ด', list: 'รายการ', table: 'ตาราง' }[v]}">${ico(VIEW_IC[v], 16, 1.8)}</button>`).join('')}</div>`;
+}
+function bindView(k, root, redraw) { $$('[data-view]', root).forEach(b => b.onclick = () => { localStorage.setItem('kty_view_' + k, b.dataset.view); $$('[data-view]', root).forEach(x => x.classList.toggle('on', x === b)); redraw(b.dataset.view); }); }
+function sortRows(rows, sort, getters) {
+  const g = getters[sort.k]; if (!g) return rows;
+  return rows.slice().sort((a, b) => { const x = g(a), y = g(b); const c = typeof x === 'number' ? x - y : String(x).localeCompare(String(y), 'th'); return sort.dir * c; });
+}
+function thSort(label, k, sort, cls) { return `<th class="${cls || ''}" data-sort="${k}" style="cursor:pointer;white-space:nowrap">${label}${sort.k === k ? (sort.dir > 0 ? ' ↑' : ' ↓') : ''}</th>`; }
+function bindSort(root, sort, redraw) { $$('[data-sort]', root).forEach(th => th.onclick = () => { if (sort.k === th.dataset.sort) sort.dir = -sort.dir; else { sort.k = th.dataset.sort; sort.dir = 1; } redraw(); }); }
 
 /* ---------- share (ส่งต่อทาง LINE/แอปอื่น) ---------- */
 async function shareDoc(doc, extra) {
@@ -680,6 +771,8 @@ route('/home', async () => {
   const stats = [];
   if (isRole('APPROVER', 'ADMIN')) stats.push([t.to_approve, 'รออนุมัติ', '/inbox', true]);
   if (isRole('STORE', 'ADMIN')) stats.push([t.to_issue, 'รอจ่ายของ', '/inbox', !stats.length]);
+  if (t.to_confirm) stats.unshift([t.to_confirm, 'รอยืนยันรับ', '/inbox', true]);
+  if (isRole('ADMIN') && t.diff_review) stats.unshift([t.diff_review, 'ส่วนต่างรอตรวจ', '/inbox', true]);
   stats.push([t.my_open, 'ใบเบิกของฉัน', '/docs', !stats.length]);
   if (isRole('STORE', 'ADMIN', 'APPROVER') && stats.length < 3) stats.push([lowStockCount(), 'ของใกล้หมด', '/stock', false]);
   if (stats.length < 3) stats.push([B.kits.length, 'ชุดสำเร็จรูป', '/shop', false]);
@@ -725,7 +818,7 @@ route('/home', async () => {
 /* ---------- รายการเอกสาร ---------- */
 async function docsPage(status) {
   const my = S.seq;
-  const tabs = [['', 'ทั้งหมด'], ['PENDING', 'รออนุมัติ'], ['APPROVED,PARTIAL', 'รอจ่าย'], ['CLOSED', 'ปิดแล้ว'], ['REJECTED,CANCELLED', 'ไม่อนุมัติ/ยกเลิก']];
+  const tabs = [['', 'ทั้งหมด'], ['PENDING', 'รออนุมัติ'], ['APPROVED,PARTIAL', 'รอจ่าย'], ['DELIVERED', 'รอยืนยันรับ'], ['DIFF_REVIEW', 'รอตรวจส่วนต่าง'], ['CLOSED', 'ปิดแล้ว'], ['REJECTED,CANCELLED', 'ไม่อนุมัติ/ยกเลิก']];
   $app.innerHTML = topbar('เอกสาร', isRole('REQUESTER') ? 'เฉพาะใบเบิกของฉัน' : '', null) + `<main>
     <div class="tabs">${tabs.map(([k, n]) => `<a class="chip ${k === (status || '') ? 'on' : ''}" style="display:flex;align-items:center;text-decoration:none;white-space:nowrap" href="#/docs${k ? '/' + k : ''}">${n}</a>`).join('')}</div>
     <div id="lst"><div class="empty">กำลังโหลด…</div></div></main>${bottomNav('docs')}`;
@@ -745,6 +838,11 @@ route('/doc/:no', async no => {
 });
 function docPage(r) {
   const d = r.doc, u = S.user, L = r.lines;
+  const DV = r.deliveries || [], AT = r.attachments || [];
+  const recv = {}; DV.forEach(v => (v.received || []).forEach(x => (recv[x.line_no] = (recv[x.line_no] || 0) + x.qty)));
+  const hasRecv = DV.some(v => ['CONFIRMED', 'DIFF', 'RESOLVED'].includes(v.status));
+  const DVST = { WAIT_CONFIRM: ['WARN', 'รอผู้เบิกยืนยัน'], CONFIRMED: ['OK', 'ยืนยันแล้ว'], CLOSED_BY_ADMIN: ['PARTIAL', 'แอดมินปิดแทน'], DIFF: ['WARN', 'นับไม่ตรง · รอแอดมินตรวจ'], RESOLVED: ['OK', 'ตรวจส่วนต่างแล้ว'] };
+  const RESN = { RETURNED: 'คืนยอดเข้าคลังแล้ว', LOST: 'บันทึกสูญหาย' };
   const mine = d.requested_by === u.user_id;
   const canApprove = d.doc_type === 'REQ' && d.status === 'PENDING' && isRole('APPROVER', 'ADMIN') && !mine;
   const canIssue = d.doc_type === 'REQ' && ['APPROVED', 'PARTIAL'].includes(d.status) && isRole('STORE', 'ADMIN');
@@ -759,13 +857,27 @@ function docPage(r) {
     <div class="line">${stChip(d.status, d.status_name)}<span class="muted small">${esc(loc.name || '')}</span></div>
     <div class="card" style="gap:10px">${tl.map(x => `<div class="row" style="gap:10px"><span style="width:10px;height:10px;border-radius:5px;background:${x[3] ? 'var(--ac)' : 'var(--inp-b)'}"></span><span class="grow">${x[0]}${x[1] ? ' · ' + esc(x[1]) : ''}</span><span class="muted small">${x[3] ? fmtD(x[2]) : '-'}</span></div>`).join('')}</div>
     ${d.reject_reason ? `<div class="note bad"><b>เหตุผลที่ไม่อนุมัติ:</b> ${esc(d.reject_reason)}</div>` : ''}
+    ${r.receipt_diff ? '<div class="note warn"><b>ผู้เบิกนับของได้ไม่ตรงกับที่สโตร์ส่ง</b> ดูส่วนต่างในรอบส่งของด้านล่าง และรูปถ่ายประกอบ</div>' : ''}
     ${d.work_category ? `<div class="muted">หมวดงาน: <b style="color:var(--tx)">${esc(d.work_category)}</b></div>` : ''}
-    <div class="card" style="padding:0;overflow-x:auto"><table class="tb"><thead><tr><th>รายการ</th><th class="r">ขอ</th><th class="r">อนุมัติ</th><th class="r">จ่าย</th></tr></thead><tbody>
+    <div class="card" style="padding:0;overflow-x:auto"><table class="tb"><thead><tr><th>รายการ</th><th class="r">ขอ</th><th class="r">อนุมัติ</th><th class="r">จ่าย</th>${hasRecv ? '<th class="r">รับจริง</th>' : ''}</tr></thead><tbody>
       ${L.map(l => `<tr><td><div style="font-weight:600">${esc(l.mat_name)}</div><div class="small" style="color:var(--m2)">${esc(l.mat_id)} · ${esc(l.unit)} · คงเหลือ ${fmtN(l.stock_at_location)}</div>${l.boq && d.status === 'PENDING' ? `<div style="margin-top:4px">${stChip(l.boq.level, boqLv[l.boq.level] + (l.boq.pct_after !== undefined ? ' ' + l.boq.pct_after + '%' : ''))}</div>` : ''}</td>
-        <td class="r">${fmtN(l.qty_requested)}</td><td class="r">${l.qty_approved === null ? '-' : fmtN(l.qty_approved)}</td><td class="r">${fmtN(l.qty_issued)}</td></tr>`).join('')}
+        <td class="r">${fmtN(l.qty_requested)}</td><td class="r">${l.qty_approved === null ? '-' : fmtN(l.qty_approved)}</td><td class="r">${fmtN(l.qty_issued)}</td>${hasRecv ? `<td class="r" style="${recv[l.line_no] !== undefined && recv[l.line_no] !== l.qty_issued ? 'color:var(--warn);font-weight:700' : 'color:var(--ok)'}">${recv[l.line_no] === undefined ? '-' : fmtN(recv[l.line_no])}</td>` : ''}</tr>`).join('')}
     </tbody></table></div>
     ${money() && d.total_amount !== null ? `<div class="line"><span class="muted">มูลค่ารวม</span><b class="disp" style="font-size:18px">${fmtB(d.total_amount)}</b></div>` : ''}
     ${d.note ? `<div class="muted">หมายเหตุ: ${esc(d.note)}</div>` : ''}
+    ${DV.length ? `<h2>รอบส่งของ (${DV.length})</h2>${DV.map(v => `<div class="card" style="gap:6px">
+      <div class="line"><b class="disp">รอบที่ ${v.round}</b>${stChip(DVST[v.status][0], DVST[v.status][1])}</div>
+      <div class="small" style="color:var(--m2)">ส่งโดย ${esc(v.issued_by_name)} · ${fmtD(v.issued_at)}${v.confirmed_at ? ' · ' + (v.status === 'CLOSED_BY_ADMIN' ? 'ปิดโดย ' : 'ยืนยันโดย ') + esc(v.confirmed_by_name) + ' ' + fmtD(v.confirmed_at) : ''}</div>
+      ${v.lines.map(x => { const rc = (v.received || []).find(y => y.line_no === x.line_no); const m = L.find(l => l.line_no === x.line_no) || {}; return `<div class="line small"><span>${esc(m.mat_name || x.mat_id)}</span><span>ส่ง ${fmtN(x.qty)}${rc ? ` · รับ <b style="color:${rc.diff ? 'var(--warn)' : 'var(--ok)'}">${fmtN(rc.qty)}</b>${rc.diff ? ' (' + (rc.diff > 0 ? '+' : '') + fmtN(rc.diff) + ')' : ''}` : ''} ${esc(m.unit || '')}</span></div>`; }).join('')}
+      ${v.note ? `<div class="small" style="color:var(--m2)">หมายเหตุ: ${esc(v.note)}</div>` : ''}
+      ${v.status === 'RESOLVED' ? `<div class="small" style="color:var(--ok)">ผลตรวจ: ${RESN[v.resolution] || v.resolution} · โดย ${esc(v.resolved_by_name)} ${fmtD(v.resolved_at)}</div>` : ''}
+      ${v.status === 'DIFF' && isRole('ADMIN') ? `<div class="g2"><button class="btn sm" data-res="RETURNED" data-dv="${esc(v.delivery_id)}">คืนยอดเข้าคลัง</button><button class="btn sm danger" data-res="LOST" data-dv="${esc(v.delivery_id)}">บันทึกสูญหาย</button></div>` : ''}
+      ${v.status === 'WAIT_CONFIRM' && d.requested_by === u.user_id ? `<button class="btn" data-go="/confirm/${encodeURIComponent(d.doc_no)}/${esc(v.delivery_id)}">นับและยืนยันรับของ</button>` : ''}
+      ${v.status === 'WAIT_CONFIRM' && isRole('ADMIN') && d.requested_by !== u.user_id ? `<button class="btn sm sec" data-close-dv="${esc(v.delivery_id)}">ปิดรอบนี้แทนผู้เบิก</button>` : ''}
+    </div>`).join('')}` : ''}
+    ${AT.length ? `<div class="card" style="gap:10px"><div class="line"><b class="disp">รูปถ่าย (${AT.length})</b></div>
+      <div class="chips" id="gf">${['ALL'].concat(['ISSUE', 'CONFIRM', 'RCV'].filter(k => AT.some(a => a.stage === k))).map((k, i) => `<button class="chip ${i ? '' : 'on'}" data-g="${k}" style="height:32px;font-size:13px">${k === 'ALL' ? 'ทั้งหมด' : STAGE_TH[k]} ${k === 'ALL' ? '' : AT.filter(a => a.stage === k).length}</button>`).join('')}</div>
+      <div class="gal" id="gal"></div><div class="small" style="color:var(--m2)">แตะรูปเพื่อดูเต็มจอและซูมนับ</div></div>` : ''}
     ${d.doc_type === 'REQ' ? '<button class="btn sec" id="reo">' + ico('cart', 18) + 'เบิกซ้ำ (ใส่ตะกร้า)</button>' : ''}
     <div class="muted small">ลายเซ็น: อนุมัติ ${r.signatures.approve ? '✓' : '–'} · สโตร์ ${r.signatures.issue ? '✓' : '–'} · ผู้รับ ${r.signatures.receive ? '✓' : '–'}</div>
   </main>${canApprove || canIssue || canCancel ? `<div class="foot">
@@ -773,6 +885,33 @@ function docPage(r) {
     ${canApprove ? '<button class="btn danger" id="rj">ไม่อนุมัติ</button><button class="btn full" data-go="/approve/' + encodeURIComponent(d.doc_no) + '">อนุมัติ</button>' : ''}
     ${canIssue ? '<button class="btn full" data-go="/issue/' + encodeURIComponent(d.doc_no) + '">จ่ายของ</button>' : ''}</div>` : bottomNav('docs')}`;
   bindCommon();
+  if ($('#gal')) {
+    let gf = 'ALL';
+    const drawG = () => {
+      const list = AT.filter(a => gf === 'ALL' || a.stage === gf).map(a => ({ url: a.url, label: STAGE_TH[a.stage], by: a.by, at: a.at }));
+      $('#gal').innerHTML = list.map((p, i) => `<button data-v="${i}" aria-label="รูปที่ ${i + 1}">${ico('cam', 22, 1.5)}${photoSrc(p.url) ? `<img src="${esc(photoSrc(p.url))}" alt="" loading="lazy" referrerpolicy="no-referrer" data-fb="">` : ''}</button>`).join('');
+      $$('#gal [data-v]').forEach(b => b.onclick = () => viewer(list, +b.dataset.v));
+    };
+    $$('#gf [data-g]').forEach(b => b.onclick = () => { gf = b.dataset.g; $$('#gf .chip').forEach(x => x.classList.toggle('on', x === b)); drawG(); });
+    drawG();
+  }
+  $$('[data-res]').forEach(b => b.onclick = () => {
+    const act = b.dataset.res, ret = act === 'RETURNED';
+    modal(`<h2>${ret ? 'คืนยอดเข้าคลัง' : 'บันทึกสูญหาย'}</h2>
+      <div class="note ${ret ? 'info' : 'warn'}">${ret ? 'ใช้เมื่อสโตร์นับผิดและของยังอยู่ในคลัง ระบบจะเพิ่มสต็อกคืนตามจำนวนที่ผู้เบิกได้รับขาด และหักยอดเบิกสะสม BOQ คืน' : 'ใช้เมื่อของหายระหว่างทาง สต็อกไม่เปลี่ยน แต่บันทึกไว้ตรวจสอบย้อนหลัง'}<br>ถ้ามีรายการที่นับได้เกิน ระบบตัดสต็อกส่วนเกินตามของจริงให้</div>
+      <div class="fld"><label for="why">${ret ? 'หมายเหตุ (ไม่บังคับ)' : 'รายละเอียดของที่สูญหาย'}</label><textarea class="ta" id="why" maxlength="300"></textarea></div><div id="merr"></div>
+      <div class="row"><button class="btn sec full" data-close>ยกเลิก</button><button class="btn full ${ret ? '' : 'danger'}" id="y">ยืนยัน</button></div>`, (bg, close) => {
+      $('#y', bg).onclick = async () => {
+        const why = $('#why', bg).value.trim();
+        if (!ret && why.length < 3) return showErr(new Error('กรุณาระบุรายละเอียดของที่สูญหาย'), 'merr');
+        try { const x = await api('resolveDiff', { doc_no: d.doc_no, delivery_id: b.dataset.dv, action: act, note: why }); close(); toast(x.doc.status === 'CLOSED' ? 'ตรวจส่วนต่างแล้ว ใบเบิกปิด' : 'บันทึกผลตรวจแล้ว'); S.cache = {}; render(); }
+        catch (e) { showErr(e, 'merr'); }
+      };
+    });
+  });
+  $$('[data-close-dv]').forEach(b => b.onclick = () => modal(`<h2>ปิดรอบส่งแทนผู้เบิก</h2><div class="muted">ใช้เมื่อผู้เบิกไม่สามารถยืนยันได้ ระบบบันทึกชื่อคุณและเหตุผลไว้</div><div class="fld"><label for="why">เหตุผล</label><textarea class="ta" id="why" maxlength="200"></textarea></div><div id="merr"></div><div class="row"><button class="btn sec full" data-close>กลับ</button><button class="btn full" id="y">ปิดรอบนี้</button></div>`, (bg, close) => {
+    $('#y', bg).onclick = async () => { const why = $('#why', bg).value.trim(); if (why.length < 3) return showErr(new Error('กรุณาระบุเหตุผล'), 'merr'); try { await api('adminCloseDelivery', { doc_no: d.doc_no, delivery_id: b.dataset.closeDv, note: why }); close(); toast('ปิดรอบส่งแล้ว'); S.cache = {}; render(); } catch (e) { showErr(e, 'merr'); } };
+  }));
   if ($('#reo')) $('#reo').onclick = () => {
     const c = cart(); let n = 0;
     L.forEach(l => { if (matOf(l.mat_id).mat_id) { setQty(l.mat_id, cartQty(l.mat_id) + l.qty_requested); n++; } });
@@ -827,24 +966,78 @@ route('/issue/:no', async no => {
       <div class="line"><div class="grow"><div style="font-weight:600">${esc(l.mat_name)}</div><div class="small" style="color:var(--m2)">อนุมัติ ${fmtN(l.qty_approved)} · จ่ายแล้ว ${fmtN(l.qty_issued)} · คงค้าง ${fmtN(rem)} ${esc(l.unit)}</div>
         <div class="small" style="color:${l.stock_at_location < rem ? 'var(--bad)' : 'var(--m2)'}">คงเหลือในคลัง ${fmtN(l.stock_at_location)} ${esc(l.unit)}</div></div>
         <input class="mono" type="number" inputmode="decimal" min="0" max="${rem}" step="any" value="${Math.min(rem, Math.max(0, l.stock_at_location))}" data-ln="${l.line_no}" ${rem ? '' : 'disabled'} aria-label="จำนวนจ่าย ${esc(l.mat_name)}" style="width:84px;height:44px;border:1px solid var(--inp-b);border-radius:11px;background:var(--inp);color:var(--tx);text-align:right;padding:0 10px;font-size:16px"></div></div>`; }).join('')}</div>
+    <div id="upl"></div>
     ${sigBlock('sg', 'ลายเซ็นผู้จ่าย (สโตร์)')}
     <label class="check"><input type="checkbox" id="rcv"><span>ให้ผู้รับของเซ็นรับด้วย</span></label>
     <div id="rcvbox" style="display:none">${sigBlock('sg2', 'ลายเซ็นผู้รับของ')}</div>
     <div id="err"></div></main><div class="foot"><button class="btn full" id="ok">ยืนยันจ่ายของ</button></div>`;
   bindCommon();
   const pad = sigPad($('#sg')); $('[data-sigclear="sg"]').onclick = () => pad.clear();
+  if (!S.issueSt || S.issueSt.doc !== no) S.issueSt = Object.assign(photoState(), { doc: no });
+  let up = null;
+  up = uploader('upl', S.issueSt, { stage: 'ISSUE', docNo: no, label: 'รูปของที่จัดเตรียม (นับจำนวนได้)', onChange: () => up && gateBtn($('#ok'), up, 'ยืนยันจ่ายของ') });
+  gateBtn($('#ok'), up, 'ยืนยันจ่ายของ');
   let pad2 = null;
   $('#rcv').onchange = e => { $('#rcvbox').style.display = e.target.checked ? '' : 'none'; if (e.target.checked && !pad2) { pad2 = sigPad($('#sg2')); $('[data-sigclear="sg2"]').onclick = () => pad2.clear(); } };
   $('#ok').onclick = async () => {
     const lines = $$('[data-ln]:not([disabled])').map(i => ({ line_no: +i.dataset.ln, qty: i.value === '' ? 0 : +i.value }));
     if (!lines.some(x => x.qty > 0)) return showErr(new Error('ไม่มีรายการที่จะจ่าย'), 'err');
+    if (!up.ready()) return showErr(new Error('กรุณาแนบรูปและรอให้อัปโหลดครบก่อน'), 'err');
     if (pad.isEmpty()) return showErr(new Error('กรุณาเซ็นชื่อผู้จ่าย'), 'err');
     if ($('#rcv').checked && (!pad2 || pad2.isEmpty())) return showErr(new Error('กรุณาให้ผู้รับเซ็นชื่อ หรือเอาเครื่องหมายออก'), 'err');
     try {
-      const x = await api('issueDoc', { doc_no: no, lines, signature: pad.dataUrl(), received_signature: $('#rcv').checked ? pad2.dataUrl() : '' });
-      toast(x.doc.status === 'CLOSED' ? 'จ่ายครบแล้ว ปิดใบเบิก' : 'จ่ายบางส่วนแล้ว'); S.boot = null;
-      await shareDoc(x.doc, x.doc.status === 'CLOSED' ? 'จ่ายของครบแล้ว มารับของได้' : 'จ่ายของบางส่วนแล้ว');
+      const x = await api('issueDoc', { doc_no: no, lines, signature: pad.dataUrl(), received_signature: $('#rcv').checked ? pad2.dataUrl() : '', batch_id: S.issueSt.batch });
+      S.issueSt = null;
+      toast(x.doc.status === 'DELIVERED' ? 'ส่งของครบแล้ว รอผู้เบิกนับและยืนยันรับ' : 'ส่งของบางส่วนแล้ว'); S.boot = null;
+      await shareDoc(x.doc, 'ส่งของแล้ว กรุณานับและยืนยันรับในแอป');
       go('/doc/' + encodeURIComponent(no));
+    } catch (e) { showErr(e, 'err'); }
+  };
+});
+
+/* ---------- ผู้เบิกนับและยืนยันรับของ ---------- */
+route('/confirm/:no/:did', async (no, did) => {
+  const my = S.seq; const r = await api('getDoc', { doc_no: no }); if (stale(my)) return;
+  const v = (r.deliveries || []).find(x => x.delivery_id === did);
+  if (!v || v.status !== 'WAIT_CONFIRM') { toast('รอบนี้ยืนยันแล้ว หรือไม่พบรอบส่ง', true); return go('/doc/' + encodeURIComponent(no)); }
+  const lineOf = n => r.lines.find(l => l.line_no === n) || {};
+  const storePhotos = r.attachments.filter(a => a.stage === 'ISSUE' && a.delivery_id === did).map(a => ({ url: a.url, label: 'สโตร์ส่งของ', by: a.by, at: a.at }));
+  $app.innerHTML = topbar('ยืนยันรับของ', `${r.doc.doc_no} · รอบส่งที่ ${v.round}`, '/doc/' + encodeURIComponent(no)) + `<main>
+    <div class="note ok">${esc(v.issued_by_name)} ส่งของเมื่อ ${fmtD(v.issued_at)} · นับของที่ได้รับจริง แล้วกรอกจำนวนให้ตรง</div>
+    <div class="card" style="gap:0">
+      <div class="line" style="padding-bottom:6px"><b class="disp">นับของที่ได้รับ</b>${storePhotos.length ? `<button class="link small" id="sp" style="color:var(--gold)">ดูรูปจากสโตร์ (${storePhotos.length})</button>` : ''}</div>
+      ${v.lines.map(s => { const l = lineOf(s.line_no), m = matOf(s.mat_id); return `<div class="row" style="gap:10px;padding:10px 0;border-top:1px solid var(--line)">
+        <div class="thumb" style="width:46px;height:46px">${matImg(m.mat_id ? m : { category_code: (s.mat_id || '').slice(0, 2) }, 22)}</div>
+        <div class="grow"><b style="font-size:14px">${esc(l.mat_name || m.name || s.mat_id)}</b><div class="small" id="df${s.line_no}" style="color:var(--m2)">สโตร์ส่ง ${fmtN(s.qty)} ${esc(l.unit || m.unit || '')}</div></div>
+        <div style="text-align:right"><div class="small" style="color:var(--m2)">นับได้จริง</div><input class="mono" type="number" inputmode="decimal" min="0" step="any" value="${s.qty}" data-ln="${s.line_no}" data-sent="${s.qty}" data-unit="${esc(l.unit || m.unit || '')}" aria-label="จำนวนที่นับได้" style="width:80px;height:42px;border:1px solid var(--inp-b);border-radius:11px;background:var(--inp);color:var(--tx);text-align:right;padding:0 10px;font-size:16px"></div></div>`; }).join('')}
+    </div>
+    <div id="dnote"></div>
+    <div id="upl"></div>
+    ${field('cn', 'หมายเหตุ (ไม่บังคับ)', { attrs: 'maxlength="200"', ph: 'เช่น ถุงปูนแตก 1 ถุง' })}
+    <div id="err"></div></main><div class="foot"><button class="btn full" id="ok">ยืนยันรับของ</button></div>`;
+  bindCommon();
+  if ($('#sp')) $('#sp').onclick = () => viewer(storePhotos, 0);
+  const diffCheck = () => {
+    let n = 0;
+    $$('[data-ln]').forEach(i => { const sent = +i.dataset.sent, q = +i.value || 0, d = Math.round((q - sent) * 1000) / 1000, el = $('#df' + i.dataset.ln);
+      if (d) n++;
+      el.innerHTML = `สโตร์ส่ง ${fmtN(sent)} ${esc(i.dataset.unit)}` + (d ? ` · <b style="color:var(--warn)">${d < 0 ? 'ขาด ' + fmtN(-d) : 'เกิน ' + fmtN(d)}</b>` : ' · ครบ');
+      i.style.borderColor = d ? 'var(--warn)' : ''; });
+    $('#dnote').innerHTML = n ? `<div class="note warn">จำนวนไม่ตรง ${n} รายการ · ระบบจะแจ้งแอดมินและสโตร์ทันทีเมื่อยืนยัน</div>` : '';
+  };
+  $$('[data-ln]').forEach(i => i.addEventListener('input', diffCheck)); diffCheck();
+  if (!S.confSt || S.confSt.key !== did) S.confSt = Object.assign(photoState(), { key: did });
+  let up = null;
+  up = uploader('upl', S.confSt, { stage: 'CONFIRM', docNo: no, label: 'รูปของที่ได้รับ', onChange: () => up && gateBtn($('#ok'), up, 'ยืนยันรับของ') });
+  gateBtn($('#ok'), up, 'ยืนยันรับของ');
+  $('#ok').onclick = async () => {
+    if (!up.ready()) return showErr(new Error('กรุณาแนบรูปและรอให้อัปโหลดครบก่อน'), 'err');
+    const lines = $$('[data-ln]').map(i => ({ line_no: +i.dataset.ln, qty: i.value === '' ? 0 : +i.value }));
+    if (lines.some(x => x.qty < 0 || isNaN(x.qty))) return showErr(new Error('จำนวนไม่ถูกต้อง'), 'err');
+    try {
+      const x = await api('confirmReceipt', { doc_no: no, delivery_id: did, lines, batch_id: S.confSt.batch, note: $('#cn').value.trim() });
+      S.confSt = null; S.cache = {};
+      toast(x.has_diff ? 'ยืนยันแล้ว · บันทึกส่วนต่างและแจ้งแอดมินแล้ว' : 'ยืนยันรับของครบแล้ว', x.has_diff); go('/doc/' + encodeURIComponent(no));
     } catch (e) { showErr(e, 'err'); }
   };
 });
@@ -925,12 +1118,13 @@ route('/req/new', () => go('/shop'));
 route('/shop', () => {
   const B = S.boot, c = cartSite(), P = projOf(c.pid);
   S.shop = S.shop || { cat: 'ALL', q: '' };
+  S.shop.sort = S.shop.sort || { k: 'name', dir: 1 };
   const shopMats = B.materials.filter(m => m.item_type !== 'TOOL');
   const cats = B.lists.category_names.filter(x => shopMats.some(m => m.category_code === x.code));
   if (S.shop.cat !== 'ALL' && !cats.some(x => x.code === S.shop.cat)) S.shop.cat = 'ALL';
   $app.innerHTML = `<header class="top" style="flex-direction:column;align-items:stretch;gap:12px;padding-bottom:16px">
       <div class="row" style="gap:4px"><button class="iconbtn" data-go="/home" aria-label="กลับ">${ico('back', 22)}</button>
-        <div class="t"><b>เบิกวัสดุ</b><button id="pjb" style="border:none;background:none;padding:0;color:var(--dk-mu);font-size:12px;display:flex;align-items:center;gap:4px">หน้างาน <span style="color:var(--metal);font-weight:600">${esc(P.project_code || 'เลือกหน้างาน')} ${esc(P.name || '')}</span>${ico('chev', 14)}</button></div>${BRAND}</div>
+        <div class="t"><b>เบิกวัสดุ</b><button id="pjb" style="border:none;background:none;padding:0;color:var(--dk-mu);font-size:12px;display:flex;align-items:center;gap:4px">หน้างาน <span style="color:var(--metal);font-weight:600">${esc(P.project_code || 'เลือกหน้างาน')} ${esc(P.name || '')}</span>${ico('chev', 14)}</button></div>${viewToggle('shop', getView('shop', 'card'), true)}</div>
       <label class="search">${ico('search', 18)}<input id="q" placeholder="ค้นหาวัสดุ เช่น ปูน, DB12" value="${esc(S.shop.q)}" autocomplete="off" enterkeyhint="search"><button type="button" id="qx" class="iconbtn" style="width:28px;height:28px;color:var(--dk-mu);${S.shop.q ? '' : 'display:none'}" aria-label="ล้างคำค้น">${ico('x', 16)}</button></label></header>
     <div class="cats" id="cats" role="tablist">${[{ code: 'ALL', name: 'ทั้งหมด' }].concat(cats).map(x => `<button class="cat ${S.shop.cat === x.code ? 'on' : ''}" data-cat="${esc(x.code)}" role="tab"><span class="ci">${catIco(x.code)}</span>${esc(x.name.replace(/\s*\(.*\)/, ''))}</button>`).join('')}</div>
     <main id="sm" style="padding-top:10px;padding-bottom:110px"></main>`;
@@ -944,10 +1138,12 @@ route('/shop', () => {
       ${freq.length ? `<div class="line"><h2>เบิกบ่อย</h2><span class="muted small">จากประวัติของคุณ</span></div><div class="hscroll">${freq.map(m => `<div class="fq"><div class="mimg">${matImg(m, 30)}</div><div class="mname" style="font-size:13px;padding-top:6px">${esc(m.name)}</div><div class="mfoot">${qtyCtl(m.mat_id)}</div></div>`).join('')}</div>` : ''}
       ${home && B.kits.length ? `<div class="line"><h2>ชุดสำเร็จรูป</h2><span class="muted small">กดเพื่อใส่ทั้งชุด</span></div><div class="hscroll">${B.kits.map(k => `<button class="kit" data-kit="${esc(k.kit_id)}"><em>${esc(k.work_category || 'ชุดวัสดุ')}</em><div class="disp" style="font-weight:600;font-size:15px;margin-top:2px">${esc(k.name)}</div><div class="small" style="color:var(--m2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${k.items.map(it => esc(matOf(it.mat_id).name || it.mat_id)).join(' · ')}</div></button>`).join('')}</div>` : ''}
       <div class="line"><h2>${home ? 'วัสดุทั้งหมด' : q ? 'ผลการค้นหา' : esc((cats.find(x => x.code === S.shop.cat) || {}).name || '')}</h2><span class="muted small">${list.length} รายการ</span></div>
-      ${list.length ? `<div class="mgrid">${list.map(card).join('')}</div>` : `<div class="empty">ไม่พบวัสดุ${q ? ' "' + esc(S.shop.q) + '"' : ''}<br><span class="small">ลองคำค้นอื่น หรือแจ้งสโตร์ให้เพิ่มรายการ</span></div>`}`;
+      ${list.length ? matView(getView('shop', 'card'), list, card, c.loc, S.shop.sort) : `<div class="empty">ไม่พบวัสดุ${q ? ' "' + esc(S.shop.q) + '"' : ''}<br><span class="small">ลองคำค้นอื่น หรือแจ้งสโตร์ให้เพิ่มรายการ</span></div>`}`;
     cartBar();
+    bindSort($('#sm'), S.shop.sort, draw);
   };
   draw();
+  bindView('shop', $app, () => draw());
   $('#sm').addEventListener('click', e => {
     const inc = e.target.closest('[data-inc]'), dec = e.target.closest('[data-dec]'), kit = e.target.closest('[data-kit]');
     if (inc) { setQty(inc.dataset.inc, cartQty(inc.dataset.inc) + 1); draw(); }
@@ -959,6 +1155,17 @@ route('/shop', () => {
   $('#qx').onclick = () => { S.shop.q = ''; $('#q').value = ''; $('#qx').style.display = 'none'; draw(); $('#q').focus(); };
   $('#pjb').onclick = () => projectSheet(() => render());
 });
+/* แสดงรายการวัสดุตามมุมมองที่เลือก (ใช้ร่วมกับแค็ตตาล็อก) */
+function matView(mode, list, card, loc, sort) {
+  if (mode === 'card') return `<div class="mgrid">${list.map(card).join('')}</div>`;
+  const qtyOf = m => stockAt(loc, m.mat_id);
+  if (mode === 'list') return `<div class="card" style="padding:4px 14px">${list.map(m => `<div class="mrow"><div class="thumb" style="width:50px;height:50px">${matImg(m, 24)}</div>
+    <div class="grow"><b style="font-size:14px">${esc(m.name)}</b><div class="small" style="color:var(--m2)">${esc(m.spec || m.mat_id)} · ต่อ ${esc(m.unit)}</div><div class="sbw">${stockBadge(m, loc)}</div></div>${qtyCtl(m.mat_id)}</div>`).join('')}</div>`;
+  const rows = sortRows(list, sort, { code: m => m.mat_id, name: m => m.name, stock: qtyOf });
+  return `<div class="card" style="padding:0;overflow-x:auto"><table class="mt"><thead><tr>${thSort('รหัส', 'code', sort)}${thSort('ชื่อ / สเปค', 'name', sort)}<th>หน่วย</th>${thSort('คงเหลือ', 'stock', sort, 'r')}<th class="r">เบิก</th></tr></thead><tbody>
+    ${rows.map(m => { const q = qtyOf(m); return `<tr><td class="c">${esc(m.mat_id)}</td><td><b>${esc(m.name)}</b><div class="small" style="color:var(--m2)">${esc(m.spec || '')}</div></td><td style="color:var(--mu)">${esc(m.unit)}</td><td class="r" style="font-weight:600;color:${q <= 0 ? 'var(--bad)' : m.min_stock && q <= m.min_stock ? 'var(--warn)' : 'var(--ok)'}">${fmtN(q)}</td><td class="r">${qtyCtl(m.mat_id)}</td></tr>`; }).join('')}
+  </tbody></table></div>`;
+}
 function projectSheet(done) {
   const B = S.boot, c = cart();
   modal(`<div class="line"><h2>เลือกหน้างาน</h2><button class="iconbtn" data-close aria-label="ปิด">${ico('x')}</button></div>
@@ -1072,10 +1279,15 @@ route('/receive', () => {
       <div class="line"><span class="lbl">รายการ (${D.items.length})</span><button class="btn sm dark" id="add">${ico('plus', 18)}เพิ่มวัสดุ</button></div>
       <div class="fld" style="gap:10px">${lineEditor(D.items, { price: true })}</div>
       <div class="fld"><label for="nt">หมายเหตุ</label><textarea class="ta" id="nt" maxlength="200">${esc(D.note)}</textarea></div>
+      <div id="upl"></div>
       ${sigBlock('sg', 'ลายเซ็นผู้รับของ (ไม่บังคับ)')}
       <div id="err"></div></main><div class="foot"><button class="btn full" id="ok">บันทึกรับเข้า</button></div>`;
     bindCommon();
     const pad = sigPad($('#sg')); $('[data-sigclear="sg"]').onclick = () => pad.clear();
+    D.photos = D.photos || photoState();
+    let up = null;
+    up = uploader('upl', D.photos, { stage: 'RCV', label: 'รูปของที่ได้รับ / ใบส่งของ', onChange: () => up && gateBtn($('#ok'), up, 'บันทึกรับเข้า') });
+    gateBtn($('#ok'), up, 'บันทึกรับเข้า');
     const keep = () => { D.loc = $('#lc').value; D.ref = $('#rf').value; D.note = $('#nt').value; };
     $('#lc').onchange = keep;
     $('#add').onclick = () => { keep(); matPicker(id => { const ex = D.items.find(x => x.mat_id === id); if (ex) ex.qty++; else D.items.push({ mat_id: id, qty: 1, unit_price: matOf(id).unit_price || 0 }); draw(); }); };
@@ -1083,8 +1295,9 @@ route('/receive', () => {
     $('#ok').onclick = async () => {
       keep(); const items = D.items.filter(x => x.qty > 0);
       if (!items.length) return showErr(new Error('กรุณาเพิ่มวัสดุอย่างน้อย 1 รายการ'), 'err');
+      if (!up.ready()) return showErr(new Error('กรุณาแนบรูปและรอให้อัปโหลดครบก่อน'), 'err');
       try {
-        const x = await api('receive', { client_uuid: D.uuid, location_id: D.loc, supplier_ref: D.ref, note: D.note, signature: pad.isEmpty() ? '' : pad.dataUrl(), lines: items.map(it => money() ? { mat_id: it.mat_id, qty: it.qty, unit_price: it.unit_price } : { mat_id: it.mat_id, qty: it.qty }) });
+        const x = await api('receive', { client_uuid: D.uuid, location_id: D.loc, supplier_ref: D.ref, note: D.note, signature: pad.isEmpty() ? '' : pad.dataUrl(), batch_id: D.photos.batch, lines: items.map(it => money() ? { mat_id: it.mat_id, qty: it.qty, unit_price: it.unit_price } : { mat_id: it.mat_id, qty: it.qty }) });
         S.rcv = null; S.boot = null; toast('บันทึกรับเข้า ' + x.doc.doc_no + ' แล้ว'); go('/doc/' + encodeURIComponent(x.doc.doc_no));
       } catch (e) { showErr(e, 'err'); }
     };
@@ -1092,29 +1305,37 @@ route('/receive', () => {
   draw();
 });
 
-/* ---------- สต็อก ---------- */
+/* ---------- สต็อก (การ์ด / รายการ / ตาราง) ---------- */
 route('/stock', async () => {
   const B = S.boot;
   if (!S.soft) loadBoot(true);
-  S.stockLoc = B.locations.some(l => l.location_id === S.stockLoc) ? S.stockLoc : (B.locations[0] || {}).location_id;
+  S.stockLoc = B.locations.some(l => l.location_id === S.stockLoc) ? S.stockLoc : ((B.locations.find(l => l.mine) || B.locations[0]) || {}).location_id;
+  S.stockF = S.stockF || { f: 'all', q: '', sort: { k: 'name', dir: 1 } };
+  const F = S.stockF;
   $app.innerHTML = topbar('สต็อกคงเหลือ', '', null) + `<main>
-    ${B.locations.length > 1 ? `<div class="inp"><select id="lc" aria-label="เลือกคลัง">${B.locations.map(l => `<option value="${esc(l.location_id)}" ${l.location_id === S.stockLoc ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></div>` : `<div class="muted">${esc((B.locations[0] || {}).name || 'ไม่มีคลังที่มีสิทธิ์')}</div>`}
-    <div class="inp"><input id="q" placeholder="ค้นหาวัสดุ" autocomplete="off"></div>
-    <div class="row chips"><button class="chip on" data-f="all">ทั้งหมด</button><button class="chip" data-f="has">มีของ</button><button class="chip" data-f="low">ใกล้หมด/หมด</button></div>
-    <div id="lst" class="fld" style="gap:8px"></div></main>${bottomNav('stock')}`;
+    <div class="row"><div class="inp grow"><select id="lc" aria-label="เลือกคลัง">${B.locations.map(l => `<option value="${esc(l.location_id)}" ${l.location_id === S.stockLoc ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></div>${viewToggle('stock', getView('stock', 'list'))}</div>
+    <div class="inp"><input id="q" placeholder="ค้นหาวัสดุ" autocomplete="off" value="${esc(F.q)}"></div>
+    <div class="row chips">${[['all', 'ทั้งหมด'], ['has', 'มีของ'], ['low', 'ใกล้หมด/หมด']].map(([k, n]) => `<button class="chip ${F.f === k ? 'on' : ''}" data-f="${k}">${n}</button>`).join('')}</div>
+    <div id="lst"></div></main>${bottomNav('stock')}`;
   bindCommon();
-  let f = 'all';
+  const lv = (m, q) => q < 0 ? ['OVER', 'ติดลบ'] : q === 0 ? ['REJECTED', 'หมด'] : (m.min_stock && q <= m.min_stock ? ['WARN', 'ต่ำ'] : ['OK', 'ปกติ']);
   const show = () => {
-    const q = $('#q').value.trim().toLowerCase(), loc = S.stockLoc;
+    const q = F.q.trim().toLowerCase(), loc = S.stockLoc, mode = getView('stock', 'list');
     const rows = B.materials.map(m => ({ m, q: stockAt(loc, m.mat_id) })).filter(x => (!q || x.m.name.toLowerCase().includes(q) || x.m.mat_id.toLowerCase().includes(q))
-      && (f === 'all' || (f === 'has' && x.q > 0) || (f === 'low' && x.m.item_type !== 'TOOL' && x.q <= x.m.min_stock)));
-    $('#lst').innerHTML = rows.length ? rows.map(x => { const lv = x.q < 0 ? ['OVER', 'ติดลบ'] : x.q === 0 ? ['REJECTED', 'หมด'] : (x.m.min_stock && x.q <= x.m.min_stock ? ['WARN', 'ต่ำ'] : ['OK', 'ปกติ']);
-      return `<div class="card" style="flex-direction:row;align-items:center;gap:10px"><div class="grow"><div style="font-weight:600">${esc(x.m.name)}</div><div class="small" style="color:var(--m2)">${esc(x.m.mat_id)}${x.m.spec ? ' · ' + esc(x.m.spec) : ''}</div></div><div style="text-align:right"><div class="disp" style="font-weight:700;font-size:18px">${fmtN(x.q)} <span class="small" style="font-weight:400">${esc(x.m.unit)}</span></div>${stChip(lv[0], lv[1])}</div></div>`; }).join('')
-      : '<div class="empty">ไม่มีรายการ</div>';
+      && (F.f === 'all' || (F.f === 'has' && x.q > 0) || (F.f === 'low' && x.m.item_type !== 'TOOL' && x.q <= x.m.min_stock)));
+    if (!rows.length) { $('#lst').innerHTML = '<div class="empty">ไม่มีรายการ</div>'; return; }
+    if (mode === 'card') $('#lst').innerHTML = `<div class="mgrid">${rows.map(x => { const v = lv(x.m, x.q); return `<div class="mcard"><div class="mimg">${matImg(x.m, 44)}</div><div class="mname">${esc(x.m.name)}</div><div class="mspec">${esc(x.m.spec || x.m.mat_id)}</div><div class="mfoot"><b class="disp" style="font-size:18px">${fmtN(x.q)} <span class="small" style="font-weight:400">${esc(x.m.unit)}</span></b>${stChip(v[0], v[1])}</div></div>`; }).join('')}</div>`;
+    else if (mode === 'list') $('#lst').innerHTML = `<div class="card" style="padding:4px 14px">${rows.map(x => { const v = lv(x.m, x.q); return `<div class="mrow"><div class="thumb" style="width:46px;height:46px">${matImg(x.m, 22)}</div><div class="grow"><div style="font-weight:600">${esc(x.m.name)}</div><div class="small" style="color:var(--m2)">${esc(x.m.mat_id)}${x.m.spec ? ' · ' + esc(x.m.spec) : ''}</div></div><div style="text-align:right"><div class="disp" style="font-weight:700;font-size:17px">${fmtN(x.q)} <span class="small" style="font-weight:400">${esc(x.m.unit)}</span></div>${stChip(v[0], v[1])}</div></div>`; }).join('')}</div>`;
+    else {
+      const rs = sortRows(rows, F.sort, { code: x => x.m.mat_id, name: x => x.m.name, stock: x => x.q });
+      $('#lst').innerHTML = `<div class="card" style="padding:0;overflow-x:auto"><table class="mt"><thead><tr>${thSort('รหัส', 'code', F.sort)}${thSort('ชื่อ / สเปค', 'name', F.sort)}<th>หน่วย</th>${thSort('คงเหลือ', 'stock', F.sort, 'r')}<th>สถานะ</th></tr></thead><tbody>${rs.map(x => { const v = lv(x.m, x.q); return `<tr><td class="c">${esc(x.m.mat_id)}</td><td><b>${esc(x.m.name)}</b><div class="small" style="color:var(--m2)">${esc(x.m.spec || '')}</div></td><td style="color:var(--mu)">${esc(x.m.unit)}</td><td class="r" style="font-weight:700">${fmtN(x.q)}</td><td>${stChip(v[0], v[1])}</td></tr>`; }).join('')}</tbody></table></div>`;
+      bindSort($('#lst'), F.sort, show);
+    }
   };
-  if ($('#lc')) $('#lc').onchange = e => { S.stockLoc = e.target.value; show(); };
-  $('#q').addEventListener('input', show);
-  $$('[data-f]').forEach(b => b.onclick = () => { f = b.dataset.f; $$('[data-f]').forEach(x => x.classList.toggle('on', x === b)); show(); });
+  $('#lc').onchange = e => { S.stockLoc = e.target.value; show(); };
+  $('#q').addEventListener('input', e => { F.q = e.target.value; show(); });
+  $$('[data-f]').forEach(b => b.onclick = () => { F.f = b.dataset.f; $$('[data-f]').forEach(x => x.classList.toggle('on', x === b)); show(); });
+  bindView('stock', $app, show);
   show();
 });
 
@@ -1282,9 +1503,11 @@ route('/inbox', async () => {
     if (isRole('APPROVER', 'ADMIN')) parts.push(sec('รออนุมัติ', r.to_approve.length + ' ใบ', r.to_approve, 'ไม่มีใบเบิกรออนุมัติ'));
     if (isRole('STORE', 'ADMIN')) parts.push(sec('รอจ่ายของ', r.to_issue.length + ' ใบ', r.to_issue, 'ไม่มีใบเบิกรอจ่าย'));
     if (r.applicants) parts.push(`<a class="card hl" href="#/admin/users" style="flex-direction:row;align-items:center;gap:12px"><span class="svc" style="all:unset"><span class="ic" style="width:44px;height:44px;border-radius:14px;background:var(--ok-bg);display:flex;align-items:center;justify-content:center;color:var(--gold)">${ico('users', 22)}</span></span><span class="grow"><b class="disp">ผู้สมัครรออนุมัติ ${r.applicants} คน</b><br><span class="small" style="color:var(--m2)">แตะเพื่อตรวจสอบและกำหนดสิทธิ์</span></span></a>`);
+    if ((r.diff_review || []).length) parts.unshift(`<div class="line"><h2>ส่วนต่างรอตรวจ</h2><span class="muted small">${r.diff_review.length} รอบ</span></div><div class="fld" style="gap:10px">${r.diff_review.map(x => `<a class="card hl" href="#/doc/${encodeURIComponent(x.doc_no)}" style="gap:4px"><div class="line"><b class="disp">${esc(x.doc_no)}</b>${stChip('WARN', 'รอบที่ ' + x.round)}</div><div class="small" style="color:var(--m2)">ผู้เบิกนับของไม่ตรง · แตะเพื่อตัดสินคืนยอดหรือบันทึกสูญหาย</div></a>`).join('')}</div>`);
+    if ((r.to_confirm || []).length) parts.unshift(`<div class="line"><h2>รอยืนยันรับของ</h2><span class="muted small">${r.to_confirm.length} รอบ</span></div><div class="fld" style="gap:10px">${r.to_confirm.map(x => `<a class="card hl" href="#/confirm/${encodeURIComponent(x.doc_no)}/${esc(x.delivery_id)}" style="gap:4px"><div class="line"><b class="disp">${esc(x.doc_no)}</b>${stChip('WARN', 'รอบที่ ' + x.round)}</div><div class="small" style="color:var(--m2)">แตะเพื่อนับของและยืนยันรับ · ${esc(x.work_category || '')}</div></a>`).join('')}</div>`);
     parts.push(sec('ใบเบิกของฉันที่ยังไม่ปิด', r.my_open.length + ' ใบ', r.my_open, 'ไม่มีใบค้าง'));
     $('#ib').innerHTML = parts.join('');
-    S.boot.tasks.to_approve = r.to_approve.length; S.boot.tasks.to_issue = r.to_issue.length; S.boot.tasks.applicants = r.applicants; updateBadges(S.boot.tasks);
+    S.boot.tasks.to_confirm = (r.to_confirm || []).length; S.boot.tasks.diff_review = (r.diff_review || []).length; S.boot.tasks.to_approve = r.to_approve.length; S.boot.tasks.to_issue = r.to_issue.length; S.boot.tasks.applicants = r.applicants; updateBadges(S.boot.tasks);
   });
 });
 
@@ -1294,18 +1517,27 @@ route('/admin/materials', async () => {
   const my = S.seq, B = S.boot; let list = [], f = { q: '', cat: 'ALL' };
   $app.innerHTML = topbar('จัดการวัสดุ', 'เพิ่ม แก้ไข ถ่ายรูป', '/home') + `<main>
     <button class="btn" id="add">${ico('plus', 18)}เพิ่มวัสดุใหม่</button>
-    <div class="inp"><input id="q" placeholder="ค้นหาชื่อหรือรหัส" autocomplete="off"></div>
+    <div class="row"><div class="inp grow"><input id="q" placeholder="ค้นหาชื่อหรือรหัส" autocomplete="off"></div>${viewToggle('mats', getView('mats', 'list'))}</div>
     <div class="tabs" id="mc">${[{ code: 'ALL', name: 'ทั้งหมด' }].concat(B.lists.category_names).map(x => `<button class="chip ${x.code === 'ALL' ? 'on' : ''}" data-c="${esc(x.code)}" style="white-space:nowrap">${esc(x.name.replace(/\s*\(.*\)/, ''))}</button>`).join('')}</div>
     <div id="ml" class="fld" style="gap:10px"><div class="empty">กำลังโหลด…</div></div></main>`;
   bindCommon();
   const draw = () => {
     if (stale(my) || !$('#ml')) return;
     const q = f.q.toLowerCase(), rows = list.filter(m => (f.cat === 'ALL' || m.category_code === f.cat) && (!q || m.name.toLowerCase().includes(q) || m.mat_id.toLowerCase().includes(q)));
-    $('#ml').innerHTML = rows.length ? rows.map(m => `<button class="card" data-m="${esc(m.mat_id)}" style="flex-direction:row;align-items:center;gap:12px;${m.status !== 'ACTIVE' ? 'opacity:.55;' : ''}">
+    const mode = getView('mats', 'list');
+    if (rows.length && mode === 'card') {
+      $('#ml').innerHTML = `<div class="mgrid">${rows.map(m => `<button class="mcard" data-m="${esc(m.mat_id)}" style="text-align:left;color:inherit;font:inherit;${m.status !== 'ACTIVE' ? 'opacity:.55' : ''}"><div class="mimg">${matImg(m, 40)}${m.image_url ? '' : '<span class="sb" style="background:var(--warn-bg);color:var(--warn)">ไม่มีรูป</span>'}</div><div class="mname">${esc(m.name)}</div><div class="mspec">${esc(m.mat_id)} · ${esc(m.unit)}${money() ? ' · ' + (m.unit_price ? fmtB(m.unit_price) : 'ไม่มีราคา') : ''}</div></button>`).join('')}</div>`;
+    } else if (rows.length && mode === 'table') {
+      f.sort = f.sort || { k: 'code', dir: 1 };
+      const rs = sortRows(rows, f.sort, { code: m => m.mat_id, name: m => m.name, price: m => m.unit_price || 0 });
+      $('#ml').innerHTML = `<div class="card" style="padding:0;overflow-x:auto"><table class="mt"><thead><tr>${thSort('รหัส', 'code', f.sort)}${thSort('ชื่อ / สเปค', 'name', f.sort)}<th>หน่วย</th>${money() ? thSort('ราคา', 'price', f.sort, 'r') : ''}<th>รูป</th><th>สถานะ</th></tr></thead><tbody>${rs.map(m => `<tr data-m="${esc(m.mat_id)}" style="cursor:pointer;${m.status !== 'ACTIVE' ? 'opacity:.55' : ''}"><td class="c">${esc(m.mat_id)}</td><td><b>${esc(m.name)}</b><div class="small" style="color:var(--m2)">${esc(m.spec || '')}</div></td><td style="color:var(--mu)">${esc(m.unit)}</td>${money() ? `<td class="r">${m.unit_price ? fmtN(m.unit_price) : '<span style="color:var(--warn)">-</span>'}</td>` : ''}<td>${m.image_url ? '✓' : '<span style="color:var(--warn)">-</span>'}</td><td>${m.status === 'ACTIVE' ? 'ใช้งาน' : 'ปิด'}</td></tr>`).join('')}</tbody></table></div>`;
+      bindSort($('#ml'), f.sort, draw);
+    } else $('#ml').innerHTML = rows.length ? rows.map(m => `<button class="card" data-m="${esc(m.mat_id)}" style="flex-direction:row;align-items:center;gap:12px;${m.status !== 'ACTIVE' ? 'opacity:.55;' : ''}">
       <div class="thumb">${matImg(m, 26)}</div><div class="grow"><b style="font-size:14px">${esc(m.name)}</b><div class="small" style="color:var(--m2)">${esc(m.mat_id)} · ${esc(m.spec || '-')} · ${esc(m.unit)}</div>
       <div class="small" style="color:var(--m2)">${m.image_url ? 'มีรูป' : '<span style="color:var(--warn)">ยังไม่มีรูป</span>'}${money() ? ' · ' + (m.unit_price ? fmtB(m.unit_price) : '<span style="color:var(--warn)">ยังไม่มีราคา</span>') : ''}${m.status !== 'ACTIVE' ? ' · ปิดใช้งาน' : ''}</div></div>${ico('chev', 18)}</button>`).join('') : '<div class="empty">ไม่พบวัสดุ</div>';
     $$('#ml [data-m]').forEach(b => b.onclick = () => editMaterial(list.find(m => m.mat_id === b.dataset.m), () => { S.cache.mats = null; render(); }));
   };
+  bindView('mats', $app, () => draw());
   $('#add').onclick = () => editMaterial(null, () => { S.cache.mats = null; render(); });
   $('#q').addEventListener('input', e => { f.q = e.target.value; draw(); });
   $$('#mc [data-c]').forEach(b => b.onclick = () => { f.cat = b.dataset.c; $$('#mc .chip').forEach(x => x.classList.toggle('on', x === b)); draw(); });
@@ -1405,7 +1637,7 @@ route('/profile', () => {
     ${field('np2', 'ยืนยันรหัสผ่านใหม่', { type: 'password', attrs: 'autocomplete="new-password" maxlength="64"' })}
     <div id="err"></div><button class="btn" id="cp">เปลี่ยนรหัสผ่าน</button>
     <button class="btn danger" id="lo">${ico('logout', 18)}ออกจากระบบ</button>
-    <div class="muted small" style="text-align:center">${esc(CFG.APP_NAME || '')} · KTY App v2.0</div>
+    <div class="muted small" style="text-align:center">${esc(CFG.APP_NAME || '')} · KTY App v2.1</div>
   </main>${bottomNav('me')}`;
   bindCommon();
   $('#lo').onclick = async () => { if (localStorage.getItem('kty_push')) { try { await disablePush(); } catch (e) { } } logout(); };

@@ -1,5 +1,5 @@
 /* Service worker: เก็บหน้าแอปไว้ในเครื่อง + รับแจ้งเตือน Push ขณะปิดแอป */
-const CACHE = 'kty-app-v2.0';
+const CACHE = 'kty-app-v2.1';
 const SHELL = ['./', './index.html', './app.js', './config.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 try {
   importScripts('config.js');
